@@ -1649,27 +1649,6 @@ class MetricPill(Gtk.Box):
             text = str(data.get("text", "")).replace("\\n", " ").replace("\n", " ").strip()
             self._val_lbl.set_markup(text)
 
-class DynamicBannerCard(Gtk.Box):
-    def __init__(self, icon: str):
-        super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        self.add_css_class("banner-card")
-        self.set_visible(False) 
-        self._icon = Gtk.Image.new_from_icon_name(icon)
-        self._icon.set_pixel_size(20)
-        self._icon.add_css_class("accent-icon")
-        self._val_lbl = Gtk.Label()
-        self._val_lbl.set_halign(Gtk.Align.START)
-        self._val_lbl.set_hexpand(True)
-        self.append(self._icon)
-        self.append(self._val_lbl)
-
-    def apply_json(self, data: dict[str, Any] | None, hide_class: str = "empty"):
-        if not data or data.get("class", "") == hide_class:
-            self.set_visible(False)
-        else:
-            self.set_visible(True)
-            self._val_lbl.set_markup(str(data.get("text", "")).replace("\\n", " ").strip())
-
 
 class MediaCard(Gtk.Box):
     def __init__(self, pool: RefreshPool):
@@ -1801,6 +1780,20 @@ class MediaCard(Gtk.Box):
 # MAIN APPLICATION WINDOW
 # ==============================================================================
 
+def _get_active_monitor_scaled_height() -> float:
+    if HYPRCTL is None:
+        return 1080.0
+    try:
+        r = subprocess.run([HYPRCTL, "-j", "monitors"], capture_output=True, text=True, timeout=1.0)
+        if r.returncode == 0:
+            monitors = json.loads(r.stdout)
+            for m in monitors:
+                if m.get("focused"):
+                    return float(m["height"]) / float(m.get("scale", 1.0))
+    except Exception as e:
+        LOG.debug("Failed to fetch monitor height: %s", e)
+    return 1080.0
+
 class QuickPanalWindow(Adw.ApplicationWindow):
     def __init__(self, app: Adw.Application, pool: RefreshPool,
                  volume_submit: FloatSubmitter | None,
@@ -1818,7 +1811,6 @@ class QuickPanalWindow(Adw.ApplicationWindow):
         self.set_decorated(False)
         self.add_css_class("panel-window")
 
-        # Catch compositor close requests and reroute to hiding the window
         self.connect("close-request", self._on_close_request)
 
         key_ctrl = Gtk.EventControllerKey()
@@ -1828,7 +1820,19 @@ class QuickPanalWindow(Adw.ApplicationWindow):
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
         main_box.set_margin_start(18); main_box.set_margin_end(18)
         main_box.set_margin_top(18); main_box.set_margin_bottom(18)
-        self.set_content(main_box)
+
+        # Scrolled window implementation for dynamic scaling down to 720p screens
+        scaled_height = _get_active_monitor_scaled_height()
+        if scaled_height < 864.0:
+            scrolled = Gtk.ScrolledWindow()
+            scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            scrolled.set_child(main_box)
+            scrolled.set_propagate_natural_width(True)
+            scrolled.set_propagate_natural_height(True)
+            scrolled.set_max_content_height(600)
+            self.set_content(scrolled)
+        else:
+            self.set_content(main_box)
 
         # --- Header ---
         self.header_center = Gtk.CenterBox()
@@ -1881,9 +1885,9 @@ class QuickPanalWindow(Adw.ApplicationWindow):
         self.tg_shader = QuickIconToggle("video-display-symbolic", "Shaders\nLMB: Open Selector", on_left=f"uwsm-app -- pkill rofi; {HOME}/user_scripts/rofi/shader_menu.sh")
         self.tg_settings = QuickIconToggle("preferences-system-symbolic", "Control Center\nLMB: Open", on_left='gdbus call --session --dest com.github.dusky.controlcenter --object-path /com/github/dusky/controlcenter --method org.freedesktop.Application.Activate "{}"')
         self.tg_theme = QuickIconToggle("preferences-desktop-appearance-symbolic", "Matugen Themes\nLMB: Select Theme | RMB: Presets", on_left=f"uwsm-app -- pkill rofi; {HOME}/user_scripts/rofi/rofi_theme.sh", on_right=f"uwsm app -- kitty --class dusky_matugen_presets.sh {HOME}/user_scripts/theme_matugen/dusky_matugen_presets.sh")
-        self.tg_wall = QuickIconToggle("preferences-desktop-wallpaper-symbolic", "Wallpapers\nLMB: Open Selector", on_left=f"uwsm-app -- pkill rofi; {HOME}/user_scripts/rofi/rofi_wallpaper_selctor.sh")
-
-        for tg in (self.tg_wifi, self.tg_bt, self.tg_perf, self.tg_idle, self.tg_dnd, self.tg_blur, self.tg_shader, self.tg_settings, self.tg_theme, self.tg_wall): self.flow.append(tg)
+        self.tg_updates = QuickIconToggle("folder-download-symbolic", "Updates\nLMB: System Update | RMB: Dusky Update", on_left=f"uwsm app -- kitty --hold sh -c 'echo \"System Update script placeholder. Add logic here.\"'", on_right=f"uwsm app -- kitty --hold sh -c 'echo \"Dusky Update script placeholder. Add logic here.\"'")
+        self.tg_updates = QuickIconToggle("folder-download-symbolic", "Updates\nLMB: System Update | RMB: Dusky Update", on_left=f"uwsm app -- kitty --class system_update.sh --hold sh -c '{HOME}/user_scripts/update_dusky/system_update.sh'", on_right=f"uwsm app -- kitty --class update_dusky.sh --hold sh -c '{HOME}/user_scripts/update_dusky/update_dusky.sh'")
+        for tg in (self.tg_wifi, self.tg_bt, self.tg_perf, self.tg_idle, self.tg_dnd, self.tg_blur, self.tg_shader, self.tg_settings, self.tg_theme, self.tg_updates): self.flow.append(tg)
         main_box.append(self.flow)
 
         # --- Power Management ComboRow ---
@@ -1926,9 +1930,6 @@ class QuickPanalWindow(Adw.ApplicationWindow):
             main_box.append(self.sliders_box)
 
         # --- Dynamic Sections ---
-        self.card_updates = DynamicBannerCard("software-update-available-symbolic")
-        main_box.append(self.card_updates)
-
         if PLAYERCTL:
             self.media_module = MediaCard(self.pool)
             main_box.append(self.media_module)
@@ -2011,8 +2012,20 @@ class QuickPanalWindow(Adw.ApplicationWindow):
     def _fetch_updates(self):
         try:
             with open(f"{HOME}/.config/dusky/settings/waybar_update_counter_h", "r") as f: data = json.load(f)
-            GLib.idle_add(self.card_updates.apply_json, data, "updated")
+            GLib.idle_add(self._apply_updates, data)
         except: pass
+
+    def _apply_updates(self, data: dict):
+        css = data.get("class", "updated")
+        base_tt = data.get("tooltip", "Updates")
+        final_tt = f"{base_tt}\n\nLMB: System Update | RMB: Dusky Update"
+        
+        if css == "pending":
+            match = re.search(r'Total:\s*(\d+)', base_tt)
+            badge = match.group(1) if match else "!"
+            self.tg_updates.update_state(icon="folder-download-symbolic", css_class="normal", tooltip=final_tt, badge=badge)
+        else:
+            self.tg_updates.update_state(icon="folder-download-symbolic", css_class="normal", tooltip=final_tt, badge="")
 
     def _apply_mako(self, data: dict):
         text = data.get("text", "")
@@ -2079,6 +2092,10 @@ window.panel-window {
     box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6);
 }
 
+scrolledwindow {
+    background: transparent;
+}
+
 .header-time { font-size: 46px; font-weight: 800; letter-spacing: -2px; }
 .header-date { font-size: 14px; font-weight: 600; color: @accent_color; }
 
@@ -2129,7 +2146,6 @@ box.clickable-pill:active { background-color: alpha(@accent_bg_color, 0.3); bord
 .metric-value-small { font-size: 10px; font-weight: 700; font-family: "JetBrainsMono Nerd Font", monospace; letter-spacing: -0.5px; }
 
 /* Dynamic Banners and Media */
-box.banner-card { background-color: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 14px; padding: 10px 14px; }
 box.media-card { background-color: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 14px; }
 
 .media-title { font-size: 14px; font-family: sans-serif; }
