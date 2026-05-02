@@ -9,6 +9,7 @@ Features: Top-Aligned Metrics, 5x2 Glassy Grid, Battle-Tested Hardware Sliders, 
 from __future__ import annotations
 
 import contextvars
+import ctypes
 import json
 import logging
 import math
@@ -84,6 +85,18 @@ HYPRSUNSET: Final = shutil.which("hyprsunset")
 PGREP: Final = shutil.which("pgrep")
 SYSTEMCTL: Final = shutil.which("systemctl")
 PLAYERCTL: Final = shutil.which("playerctl")
+
+# ==============================================================================
+# WAYLAND NATIVE FOCUS GRAB INTEGRATION
+# ==============================================================================
+try:
+    _grab_lib_path = os.path.expanduser("~/user_scripts/dusky_system/click_away_to_dismiss/libwaylandgrab.so")
+    LIBGRAB = ctypes.CDLL(_grab_lib_path)
+    CB_TYPE = ctypes.CFUNCTYPE(None)
+except OSError:
+    LOG.warning(f"Failed to load Wayland Grab Library at {_grab_lib_path}. Outside click dismissal will not function.")
+    LIBGRAB = None
+
 
 # ==============================================================================
 # UTILITIES & STATE MANAGEMENT
@@ -1812,6 +1825,16 @@ class QuickPanalWindow(Adw.ApplicationWindow):
         self.add_css_class("panel-window")
 
         self.connect("close-request", self._on_close_request)
+        self.connect("notify::visible", self._on_visible_changed)
+        
+        # Connect to map to properly attach our Wayland grab once the surface exists
+        self.connect("map", self._on_map)
+
+        # Retain a reference to the C callback so it isn't garbage collected by Python
+        if LIBGRAB:
+            self._grab_cb = CB_TYPE(self._on_grab_cleared)
+        else:
+            self._grab_cb = None
 
         key_ctrl = Gtk.EventControllerKey()
         key_ctrl.connect("key-pressed", self._on_key_pressed)
@@ -1852,7 +1875,8 @@ class QuickPanalWindow(Adw.ApplicationWindow):
         self.lbl_date = Gtk.Label(css_classes=["header-date"])
         self.clock_box.append(self.lbl_time); self.clock_box.append(self.lbl_date)
         clock_click = Gtk.GestureClick.new()
-        clock_click.connect("pressed", lambda *args: execute_cmd("uwsm-app -- gnome-clocks"))
+        # [SURGICAL FIX]: Launch GNOME Clocks directly as a GUI app, without the terminal pipe.
+        clock_click.connect("pressed", lambda *args: execute_cmd("uwsm app -- gnome-clocks"))
         self.clock_box.add_controller(clock_click)
         self.header_center.set_center_widget(self.clock_box)
 
@@ -1885,7 +1909,6 @@ class QuickPanalWindow(Adw.ApplicationWindow):
         self.tg_shader = QuickIconToggle("video-display-symbolic", "Shaders\nLMB: Open Selector", on_left=f"uwsm-app -- pkill rofi; {HOME}/user_scripts/rofi/shader_menu.sh")
         self.tg_settings = QuickIconToggle("preferences-system-symbolic", "Control Center\nLMB: Open", on_left='gdbus call --session --dest com.github.dusky.controlcenter --object-path /com/github/dusky/controlcenter --method org.freedesktop.Application.Activate "{}"')
         self.tg_theme = QuickIconToggle("preferences-desktop-appearance-symbolic", "Matugen Themes\nLMB: Select Theme | RMB: Presets", on_left=f"uwsm-app -- pkill rofi; {HOME}/user_scripts/rofi/rofi_theme.sh", on_right=f"uwsm app -- kitty --class dusky_matugen_presets.sh {HOME}/user_scripts/theme_matugen/dusky_matugen_presets.sh")
-        self.tg_updates = QuickIconToggle("folder-download-symbolic", "Updates\nLMB: System Update | RMB: Dusky Update", on_left=f"uwsm app -- kitty --hold sh -c 'echo \"System Update script placeholder. Add logic here.\"'", on_right=f"uwsm app -- kitty --hold sh -c 'echo \"Dusky Update script placeholder. Add logic here.\"'")
         self.tg_updates = QuickIconToggle("folder-download-symbolic", "Updates\nLMB: System Update | RMB: Dusky Update", on_left=f"uwsm app -- kitty --class system_update.sh --hold sh -c '{HOME}/user_scripts/update_dusky/system_update.sh'", on_right=f"uwsm app -- kitty --class update_dusky.sh --hold sh -c '{HOME}/user_scripts/update_dusky/update_dusky.sh'")
         for tg in (self.tg_wifi, self.tg_bt, self.tg_perf, self.tg_idle, self.tg_dnd, self.tg_blur, self.tg_shader, self.tg_settings, self.tg_theme, self.tg_updates): self.flow.append(tg)
         main_box.append(self.flow)
@@ -1934,7 +1957,18 @@ class QuickPanalWindow(Adw.ApplicationWindow):
             self.media_module = MediaCard(self.pool)
             main_box.append(self.media_module)
 
-        self.connect("notify::visible", self._on_visible_changed)
+    def _on_map(self, *args):
+        # Attach the grab ONLY once the GTK surface is actually mapped to Wayland
+        self._activate_grab()
+
+    def _activate_grab(self):
+        if LIBGRAB and self.get_visible() and self._grab_cb:
+            window_ptr = ctypes.c_void_p(hash(self))
+            LIBGRAB.init_wayland_grab(window_ptr, self._grab_cb)
+
+    def _on_grab_cleared(self):
+        # Fires safely from the C thread when Hyprland registers the outside click
+        GLib.idle_add(self.set_visible, False)
 
     def _update_ui_state(self):
         now = datetime.now()
@@ -2066,10 +2100,13 @@ class QuickPanalWindow(Adw.ApplicationWindow):
 
     def _on_visible_changed(self, *args):
         if self.is_visible():
+            self._activate_grab()
             if self._timer_id is None:
                 self._update_ui_state()
                 self._timer_id = GLib.timeout_add(2000, self._update_ui_state)
         else:
+            if LIBGRAB:
+                LIBGRAB.destroy_wayland_grab()
             if self._timer_id is not None:
                 GLib.source_remove(self._timer_id)
                 self._timer_id = None
