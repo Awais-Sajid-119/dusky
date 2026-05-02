@@ -42,7 +42,7 @@ declare -ra USER_SERVICE_DEFS=(
     "update_checker.timer|Automatic Update Checker"
     "hypridle.service|Hyprland Idle Daemon"
     "osd_lock.service|OSD for CapsLock,NumLock,ScrollLock"
-    "hyprpolkitagent.service|Root Password Prompt for Root Apps"
+    "hyprpolkitagent.service|(Polkit) Root Password Prompt"
 )
 
 declare -ra SYSTEM_SERVICE_DEFS=(
