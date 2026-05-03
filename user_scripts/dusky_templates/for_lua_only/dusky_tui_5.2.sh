@@ -1924,9 +1924,9 @@ acquire_sudo() {
     [[ -n ${ORIGINAL_STTY:-} ]] && stty "$ORIGINAL_STTY" < /dev/tty 2>/dev/null || :
 
     printf '%s%s' "$CLR_SCREEN" "$CURSOR_HOME"
-    printf '\n  %s┌────────────────────────────────────────────────┐%s\n' "$C_MAGENTA" "$C_RESET"
+    printf '\n  %s┌──────────────────────────────────────────────────┐%s\n' "$C_MAGENTA" "$C_RESET"
     printf '  %s│%s  System operation requires administrator access  %s│%s\n' "$C_MAGENTA" "$C_YELLOW" "$C_MAGENTA" "$C_RESET"
-    printf '  %s└────────────────────────────────────────────────┘%s\n\n' "$C_MAGENTA" "$C_RESET"
+    printf '  %s└──────────────────────────────────────────────────┘%s\n\n' "$C_MAGENTA" "$C_RESET"
 
     local -i result=0
     sudo -v 2>/dev/null || result=$?
@@ -2523,6 +2523,8 @@ handle_key_main() {
         j|J) navigate 1 ;;
         l|L) adjust 1 ;;
         h|H) adjust -1 ;;
+        $'\x15') navigate_page -1 ;; # Ctrl+U
+        $'\x04') navigate_page 1 ;;  # Ctrl+D
         g) navigate_end 0 ;;
         G) navigate_end 1 ;;
         $'\t') switch_tab 1 ;;
@@ -2553,6 +2555,8 @@ handle_key_detail() {
         j|J) navigate 1 ;;
         l|L) adjust 1 ;;
         h|H) adjust -1 ;;
+        $'\x15') navigate_page -1 ;; # Ctrl+U
+        $'\x04') navigate_page 1 ;;  # Ctrl+D
         g) navigate_end 0 ;;
         G) navigate_end 1 ;;
         r|R) reset_defaults ;;
@@ -2577,6 +2581,8 @@ handle_key_picker() {
         ESC) exit_picker ;;
         k|K) picker_navigate -1 ;;
         j|J) picker_navigate 1 ;;
+        $'\x15') picker_navigate -$MAX_DISPLAY_ROWS ;; # Ctrl+U
+        $'\x04') picker_navigate $MAX_DISPLAY_ROWS ;;  # Ctrl+D
         g) PICKER_SELECTED=0 ;;
         G) PICKER_SELECTED=$(( ${#PICKER_ITEMS[@]} - 1 )) ;;
         ''|$'\n') picker_confirm ;;
