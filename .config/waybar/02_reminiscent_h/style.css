@@ -25,7 +25,7 @@
    TRANSPARENCY TOGGLE
    ───────────────────────────────────────────────────────────────────────────── */
 
-/* WAYBAR_OPAQUE_SWITCH_START */
+/* WAYBAR_OPAQUE_SWITCH_START
 @define-color glass_bar                       @surface;
 @define-color glass_module                    @surface_container;
 @define-color glass_hover_bg                  @on_secondary;
@@ -42,7 +42,7 @@
 @define-color glass_taskbar_bg                @secondary_container;
 @define-color glass_taskbar_border_hover      @primary;
 @define-color glass_taskbar_border_active     @tertiary;
-/* WAYBAR_OPAQUE_SWITCH_END */
+WAYBAR_OPAQUE_SWITCH_END */
 
 /* ─────────────────────────────────────────────────────────────────────────────
    RESET & FOUNDATIONS
@@ -109,21 +109,36 @@ tooltip {
 
 #custom-firefox {
     border-radius: 25px 0 0 25px;
-    margin-right: 0px;
+    margin-right: 2px;
     padding-right: 10px;
 }
 
 #custom-terminal, 
-#custom-text-editor {
+#custom-text-editor,
+#custom-files {
     border-radius: 0px;
+    margin-left: 0px;
+    margin-right: 2px;
+}
+
+/* Snip serves as the right-cap of the pill when the drawer is closed */
+#custom-snip {
+    border-radius: 0 25px 25px 0;
     margin-left: 0px;
     margin-right: 0px;
 }
 
-#custom-files {
+/* The expanding drawer elements that slide out */
+#custom-clip {
+    border-radius: 0px;
+    margin-left: 2px;
+    margin-right: 2px;
+}
+
+#custom-calculator {
     border-radius: 0 25px 25px 0;
     margin-left: 0px;
-    padding-left: 10px;
+    margin-right: 0px;
 }
 
 /* =========================================================

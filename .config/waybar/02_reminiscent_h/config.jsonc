@@ -14,8 +14,7 @@
     "modules-left": [
         "group/launcher-drawer",
         "group/apps-strip",
-        "group/updates-drawer",
-        "group/group-tools"
+        "group/updates-drawer"
     ],
     "modules-center": [
         "wlr/taskbar"
@@ -35,7 +34,7 @@
         "format": "{icon}",
         "icon-size": 20,
         "tooltip-format": "{title:.50}",
-        "on-click": "minimize",
+        "on-click": "activate",
         "on-click-middle": "close",
         "on-click-right": "fullscreen"
     },
@@ -66,7 +65,8 @@
             "custom/firefox",
             "custom/terminal",
             "custom/text-editor",
-            "custom/files"
+            "custom/files",
+            "group/group-tools"
         ]
     },
 
@@ -180,13 +180,13 @@
     "custom/updates": {
         "exec": "tail -F ~/.config/dusky/settings/waybar_update_counter_h 2>/dev/null",
         "return-type": "json",
-        "format": "󰏔 {}",
+        "format": "{}",
         "tooltip": true,
         "on-click": "uwsm-app -- kitty sh -c 'command -v yay >/dev/null && yay || paru'"
     },
 
     "custom/snip": {
-        "format": "",
+        "format": "󰆞",
         "tooltip": true,
         "tooltip-format": "Screenshot",
         "on-click": "uwsm-app -- ~/user_scripts/images/dusky_screenshot.sh --region --freeze --no-notify --smart",
