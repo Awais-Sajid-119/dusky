@@ -131,9 +131,9 @@
   "custom/updates": {
     "exec": "tail -F ~/.config/dusky/settings/waybar_update_counter_h 2>/dev/null",
     "return-type": "json",
-    "format": "󰏔 {}",
+    "format": "{}",
     "tooltip": true,
-    "on-click": "uwsm-app -- kitty sh -c 'command -v yay >/dev/null && yay || paru'"
+    "on-click": "uwsm-app -- kitty --class system_update.sh -e ~/user_scripts/update_dusky/system_update.sh"
   },
 
   "custom/notification": {
