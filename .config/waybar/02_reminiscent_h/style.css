@@ -244,6 +244,12 @@ tooltip {
     border-radius: 25px;
 }
 
+#taskbar.empty {
+    background: transparent;
+    padding: 0;
+    margin: 0;
+}
+
 #taskbar button {
     background: transparent;
     padding: 0 8px;
