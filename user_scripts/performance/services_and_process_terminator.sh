@@ -62,13 +62,13 @@ _exit_or_shell() {
 declare -ra DEFAULT_PROCESSES=("hyprsunset" "awww-daemon" "waybar" "blueman-manager")
 declare -ra OPTIONAL_PROCESSES=("inotifywait" "wl-paste" "wl-copy" "firefox" "discord")
 
-declare -ra DEFAULT_SYSTEM_SERVICES=("firewalld" "vsftpd" "waydroid-container" "logrotate.timer" "sshd")
+declare -ra DEFAULT_SYSTEM_SERVICES=("ufw" "vsftpd" "waydroid-container" "logrotate.timer" "sshd")
 declare -ra OPTIONAL_SYSTEM_SERVICES=("udisks2" "warp-svc" "NetworkManager")
 
-declare -ra DEFAULT_USER_SERVICES=("battery_notify" "blueman-applet" "hypridle" "hyprpolkitagent" "gvfs-daemon" "waybar" "blueman-manager" "gvfs-metadata" "network_meter" "dusky_quickpanal" "dusky")
-declare -ra OPTIONAL_USER_SERVICES=("gnome-keyring-daemon" "pipewire-pulse.socket" "pipewire.socket" "wireplumber" "pipewire")
+declare -ra DEFAULT_USER_SERVICES=("battery_notify" "blueman-applet" "gvfs-daemon" "waybar" "blueman-manager" "gvfs-metadata" "network_meter" "dusky_quickpanal" "dusky")
+declare -ra OPTIONAL_USER_SERVICES=("gnome-keyring-daemon" "pipewire-pulse.socket" "hypridle" "hyprpolkitagent" "pipewire.socket" "wireplumber" "pipewire")
 
-declare -ra DEFAULT_SCRIPTS=("dusky_main.py" "dusky_stt_main.py")
+declare -ra DEFAULT_SCRIPTS=("dusky_main.py" "dusky_stt_main.py" )
 declare -ra OPTIONAL_SCRIPTS=()
 
 # --- DEPENDENCY VALIDATION ---
