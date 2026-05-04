@@ -483,6 +483,23 @@ pages:
               terminal: false
   - type: section
     properties:
+      title: Locale & Region
+      icon: ''
+      description: Configure time, date, timezone, and language settings
+    items:
+    - type: button
+      properties:
+        title: Configure System Locale
+        description: Set timezone, time, date, locale, and keymap
+        icon: preferences-system-time-symbolic
+        button_text: "Configure"
+      on_press:
+        type: exec
+        command: kitty --class locale_tui.sh --title "System Region Manager" --hold sh -c "$HOME/user_scripts/locale/locale_tui.sh"
+        terminal: false
+
+  - type: section
+    properties:
       title: Session Management
       icon: system-users-symbolic
       description: Manage user session and login behavior
