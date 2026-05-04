@@ -28,7 +28,7 @@ readonly WP_AUDIO_SINK="@DEFAULT_AUDIO_SINK@"
 
 # Target resources to manage during power transitions
 # Note: Process names must not exceed 15 characters due to kernel TASK_COMM_LEN limits.
-readonly -a TARGET_PROCESSES=("btop" "nvtop" "hyprsunset" "awww-daemon")
+readonly -a TARGET_PROCESSES=("btop" "nvtop" "hyprsunset" "awww-daemon" "waybar" "blueman-manager")
 
 # Target scripts (Safely matched via args parsing to prevent killing text editors)
 readonly -a TARGET_SCRIPTS=("dusky_main.py" "dusky_stt_main.py") 
@@ -36,7 +36,7 @@ readonly -a TARGET_SCRIPTS=("dusky_main.py" "dusky_stt_main.py")
 readonly -a TARGET_SYSTEM_SERVICES=("firewalld" "vsftpd" "waydroid-container" "logrotate.timer" "sshd" "ufw")
 
 # Note: 'hypridle' explicitly removed to preserve Wayland DPMS idle power-saving management.
-readonly -a TARGET_USER_SERVICES=("battery_notify" "blueman-applet" "gvfs-daemon" "gvfs-metadata" "network_meter" "waybar" "blueman-manager" "dusky_quickpanal" "dusky")
+readonly -a TARGET_USER_SERVICES=("battery_notify" "blueman-applet" "gvfs-daemon" "gvfs-metadata" "network_meter" "dusky_quickpanal" "dusky")
 
 # --- INITIALIZATION ---
 mkdir -p "${STATE_DIR}"
@@ -322,14 +322,20 @@ manage_services() {
         for proc in "${TARGET_PROCESSES[@]}"; do
             local -a pids=()
             mapfile -t pids < <(pgrep -x "$proc" 2>/dev/null || true)
-            terminate_pids pids
+            if ((${#pids[@]} > 0)); then
+                save_state "proc_active_${proc}" "true"
+                terminate_pids pids
+            fi
         done
 
         # Background Scripts (Safely parsed from array)
         for script in "${TARGET_SCRIPTS[@]}"; do
             local -a script_pids=()
             mapfile -t script_pids < <(get_script_pids "$script")
-            terminate_pids script_pids
+            if ((${#script_pids[@]} > 0)); then
+                save_state "script_active_${script}" "true"
+                terminate_pids script_pids
+            fi
         done
 
         if has_cmd playerctl; then playerctl -a pause || true; fi
@@ -343,7 +349,7 @@ manage_services() {
             fi
         done
 
-        # User Services (UWSM graphical targets managed here exclusively)
+        # User Services
         for svc in "${TARGET_USER_SERVICES[@]}"; do
             if systemctl --user is-active --quiet "$svc" 2>/dev/null; then
                 save_state "usr_svc_${svc}" "active"
@@ -352,7 +358,7 @@ manage_services() {
         done
 
     else
-        log_step "Restoring previously active services..."
+        log_step "Restoring previously active services & processes..."
         
         # System Services
         for svc in "${TARGET_SYSTEM_SERVICES[@]}"; do
@@ -367,6 +373,30 @@ manage_services() {
             if [[ "$(get_state "usr_svc_${svc}")" == "active" ]]; then
                 systemctl --user start "$svc" || true
                 clear_state "usr_svc_${svc}"
+            fi
+        done
+        
+        # Simple processes
+        for proc in "${TARGET_PROCESSES[@]}"; do
+            if [[ "$(get_state "proc_active_${proc}")" == "true" ]]; then
+                if has_cmd uwsm; then
+                    uwsm app -- "$proc" &>/dev/null &
+                else
+                    "$proc" &>/dev/null &
+                fi
+                clear_state "proc_active_${proc}"
+            fi
+        done
+        
+        # Background Scripts
+        for script in "${TARGET_SCRIPTS[@]}"; do
+            if [[ "$(get_state "script_active_${script}")" == "true" ]]; then
+                if has_cmd uwsm; then
+                    uwsm app -- "$script" &>/dev/null &
+                else
+                    "$script" &>/dev/null &
+                fi
+                clear_state "script_active_${script}"
             fi
         done
     fi
@@ -434,7 +464,6 @@ enable_power_saver() {
 
     if [[ "$theme" == "true" ]] && has_cmd uwsm; then
         log_info "Applying Light Theme for backlight optimization..."
-        pkill awww-daemon || true
         uwsm app -- "${THEME_SCRIPT}" set --mode light &>/dev/null || true
     fi
 
@@ -457,7 +486,6 @@ disable_power_saver() {
 
     if [[ "$theme" == "true" ]] && has_cmd uwsm; then
         log_info "Restoring Dark Theme..."
-        pkill awww-daemon || true
         uwsm app -- "${THEME_SCRIPT}" set --mode dark &>/dev/null || true
     fi
 
