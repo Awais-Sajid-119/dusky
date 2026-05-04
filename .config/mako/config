@@ -66,6 +66,10 @@ invisible=1
 # [app-name=SystemBackup summary~="Failed"]
 # on-notify=exec sh -c '~/.local/bin/trigger-recovery.sh & pkill -RTMIN+8 waybar'
 
+# 3. Dusky Updates Click Action
+[summary="Dusky Dotfiles"]
+on-button-left=exec kitty --class update_dusky.sh --hold ~/user_scripts/update_dusky/update_dusky.sh
+
 # 4. Visual Overrides for Specific Apps
 # Make screenshot thumbnails massive so you can verify what you clipped
 [app-name=grimblast]
