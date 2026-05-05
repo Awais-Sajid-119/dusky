@@ -106,6 +106,9 @@ format=<b>%s</b>\n%b
 # Optional: You can also strip the border or adjust margins specifically for the OSD here
 # border-size=0
 # margin=0,0,50,0
+width=240
+height=48
+border-radius=24
 default-timeout=1000
 
 # ======================================
@@ -138,5 +141,37 @@ format=%s
 # border-color=#555555
 
 # ======================================
-# 
+# DUSKY CAVA VISUALIZER
 # ======================================
+[app-name=dusky-cava]
+# 1. Position (Moved to the bottom)
+anchor=bottom-center
+# Margin pushes it 20px up from the bottom edge
+margin=0,0,20,0
+
+# 2. Dimensions (Thinner height, wider width to eliminate '...')
+width=380
+height=40
+padding=0
+
+# 3. Pill Shape (Radius must be exactly half of the height: 40 / 2 = 20)
+border-radius=20
+border-size=2
+
+# 4. Typography (Scaled down font to fit the thinner height)
+icons=0
+text-alignment=center
+font=monospace 22
+format=%s
+
+# ======================================
+# DUSKY CAVA ALERTS
+# ======================================
+[app-name=dusky-cava-alert]
+anchor=bottom-center
+margin=0,0,20,0
+width=300
+height=40
+border-radius=20
+text-alignment=center
+font=monospace 12
