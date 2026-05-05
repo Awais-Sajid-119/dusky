@@ -35,11 +35,33 @@ main() {
                 icon="audio-volume-low"
             fi
             
-            local vol
-            vol=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ | awk '{print int($2 * 100 + 0.5)}')
-            notify "$icon" "Volume: ${vol}%" "$vol"
-            
+            # Release hardware lock immediately
             exec {lock_fd}>&-
+            
+            # Hybrid Async UI Updater: Rate-limited + Final Consistency
+            (
+                intent_file="${XDG_RUNTIME_DIR:-/tmp}/osd_audio_intent.pid"
+                ui_lock="${XDG_RUNTIME_DIR:-/tmp}/osd_audio_ui.lock"
+                
+                # Register this process as the latest intent
+                echo $BASHPID > "$intent_file"
+                
+                exec {ui_fd}> "$ui_lock"
+                
+                if flock -n "$ui_fd"; then
+                    # We got the lock instantly -> update UI immediately
+                    vol=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ | awk '{print int($2 * 100 + 0.5)}')
+                    notify "$icon" "Volume: ${vol}%" "$vol"
+                else
+                    # UI is busy -> wait in line
+                    flock -x "$ui_fd"
+                    # Once free, only update if we are still the newest intent
+                    if [[ "$(cat "$intent_file" 2>/dev/null)" == "$BASHPID" ]]; then
+                        vol=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ | awk '{print int($2 * 100 + 0.5)}')
+                        notify "$icon" "Volume: ${vol}%" "$vol"
+                    fi
+                fi
+            ) &
             ;;
 
         --vol-mute)
@@ -47,15 +69,34 @@ main() {
             flock -x "$lock_fd"
 
             wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
-            if wpctl get-volume @DEFAULT_AUDIO_SINK@ | grep -q "MUTED"; then
-                notify "audio-volume-muted" "Audio Muted" ""
-            else
-                local vol
-                vol=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ | awk '{print int($2 * 100 + 0.5)}')
-                notify "audio-volume-high" "Audio Unmuted" "$vol"
-            fi
             
             exec {lock_fd}>&-
+
+            (
+                intent_file="${XDG_RUNTIME_DIR:-/tmp}/osd_audio_intent.pid"
+                ui_lock="${XDG_RUNTIME_DIR:-/tmp}/osd_audio_ui.lock"
+                echo $BASHPID > "$intent_file"
+                
+                exec {ui_fd}> "$ui_lock"
+                
+                send_mute_notify() {
+                    if wpctl get-volume @DEFAULT_AUDIO_SINK@ | grep -q "MUTED"; then
+                        notify "audio-volume-muted" "Audio Muted" ""
+                    else
+                        vol=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ | awk '{print int($2 * 100 + 0.5)}')
+                        notify "audio-volume-high" "Audio Unmuted" "$vol"
+                    fi
+                }
+
+                if flock -n "$ui_fd"; then
+                    send_mute_notify
+                else
+                    flock -x "$ui_fd"
+                    if [[ "$(cat "$intent_file" 2>/dev/null)" == "$BASHPID" ]]; then
+                        send_mute_notify
+                    fi
+                fi
+            ) &
             ;;
 
         --mic-mute)
@@ -77,11 +118,29 @@ main() {
                 brightnessctl set "${step}%-" -q
             fi
             
-            local bright
-            bright=$(brightnessctl -m | awk -F, '{print int($4 + 0.5)}')
-            notify "gpm-brightness-lcd" "Brightness: ${bright}%" "$bright"
-            
+            # Release hardware lock immediately
             exec {lock_fd}>&-
+            
+            # Hybrid Async UI Updater
+            (
+                intent_file="${XDG_RUNTIME_DIR:-/tmp}/osd_display_intent.pid"
+                ui_lock="${XDG_RUNTIME_DIR:-/tmp}/osd_display_ui.lock"
+                
+                echo $BASHPID > "$intent_file"
+                
+                exec {ui_fd}> "$ui_lock"
+                
+                if flock -n "$ui_fd"; then
+                    bright=$(brightnessctl -m | awk -F, '{print int($4 + 0.5)}')
+                    notify "gpm-brightness-lcd" "Brightness: ${bright}%" "$bright"
+                else
+                    flock -x "$ui_fd"
+                    if [[ "$(cat "$intent_file" 2>/dev/null)" == "$BASHPID" ]]; then
+                        bright=$(brightnessctl -m | awk -F, '{print int($4 + 0.5)}')
+                        notify "gpm-brightness-lcd" "Brightness: ${bright}%" "$bright"
+                    fi
+                fi
+            ) &
             ;;
 
         --kbd-bright-up|--kbd-bright-down)
