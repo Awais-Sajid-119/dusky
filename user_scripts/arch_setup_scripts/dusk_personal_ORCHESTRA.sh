@@ -96,6 +96,7 @@ INSTALL_SEQUENCE=(
     "U | 237_text_editer_switcher.sh"
     "U | 238_terminal_switcher.sh"
     "S | 245_asusd_service_fix.sh"
+    "S | 246_asusd_tuf_f15_config.sh"
     "S | 250_ftp_arch.sh"
     "U | 255_tldr_update.sh"
     "U | 260_spotify.sh"
