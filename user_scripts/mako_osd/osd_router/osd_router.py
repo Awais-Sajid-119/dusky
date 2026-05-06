@@ -11,7 +11,7 @@ from evdev import InputDevice, ecodes
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 SYNC_ID = "sys-osd"
-ROUTER_SCRIPT = os.path.expanduser("~/user_scripts/mako_osd/osd_router.sh")
+ROUTER_SCRIPT = os.path.expanduser("~/user_scripts/mako_osd/osd_router/osd_router.sh")
 
 # Set to True if you remap CapsLock to Escape/Ctrl in Hyprland config
 IGNORE_RAW_CAPSLOCK = False 
