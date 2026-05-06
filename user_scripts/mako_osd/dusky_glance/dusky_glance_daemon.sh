@@ -46,9 +46,20 @@ fi
 echo "$$" > "$PID_FILE"
 
 cleanup() {
+    # 1. Kill grandchildren (the pipeline commands like socat inside the subshell)
+    for child in $(pgrep -P "$$" 2>/dev/null || true); do
+        pkill -P "$child" 2>/dev/null || true
+    done
+    
+    # 2. Kill direct children (the background subshells)
+    pkill -P "$$" 2>/dev/null || true
+
+    # 3. Release the lock file
     if [[ -f "$PID_FILE" ]] && [[ "$(<"$PID_FILE")" == "$$" ]]; then
         rm -f "$PID_FILE"
     fi
+    
+    # 4. Clear the display
     clear_osd
 }
 trap 'cleanup' EXIT
@@ -130,7 +141,6 @@ case "$MODE" in
         WORK_SEC="${2:-1500}"
         BREAK_SEC="${3:-300}"
         
-        # Guard rail: prevent zero-duration infinite execution loop
         if (( WORK_SEC <= 0 )); then 
             send_osd "Invalid Time"
             sleep 2
@@ -208,7 +218,6 @@ case "$MODE" in
     --temp)
         zone_file=""
         
-        # 1. Probe for deterministic CPU hardware sensors
         for hwmon in /sys/class/hwmon/hwmon*/name; do
             [[ -r "$hwmon" ]] || continue
             read -r name < "$hwmon"
@@ -221,7 +230,6 @@ case "$MODE" in
             fi
         done
         
-        # 2. Safe fallback to ACPI / Thermal Zones if no native hwmon matched
         if [[ -z "$zone_file" ]]; then
             for tz in /sys/class/thermal/thermal_zone*/type; do
                 [[ -r "$tz" ]] || continue
@@ -307,9 +315,7 @@ case "$MODE" in
             if [[ -r "$STATE_FILE" ]]; then
                 read -r unit up down _ < "$STATE_FILE" || true
                 up="${up:-0}"; down="${down:-0}"; unit="${unit:-B}"
-                
                 short_unit="${unit%B}"
-                
                 send_osd "${up}${short_unit} ${down}${short_unit}"
             else
                 send_osd "Offline"
@@ -340,7 +346,6 @@ case "$MODE" in
             exit 1
         fi
         
-        # Process the initial state before dropping into the IPC listener loop
         if ws_info=$(hyprctl activeworkspace 2>/dev/null); then
             ws_id=$(awk '/workspace ID/ {print $3}' <<< "$ws_info")
             send_osd "WS: ${ws_id:-?}"
@@ -348,16 +353,22 @@ case "$MODE" in
             send_osd "WS: ?"
         fi
 
-        # Transition to extremely low-overhead IPC socket streaming 
         socket_path="$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket2.sock"
         if command -v socat >/dev/null 2>&1 && [[ -S "$socket_path" ]]; then
-            socat -U - UNIX-CONNECT:"$socket_path" 2>/dev/null | while read -r line; do
-                if [[ "$line" == "workspace>>"* ]]; then
-                    send_osd "WS: ${line#workspace>>}"
-                fi
-            done
+            # Run the blocking pipeline in the background
+            {
+                socat -U - UNIX-CONNECT:"$socket_path" 2>/dev/null | while read -r line; do
+                    if [[ "$line" == "workspace>>"* ]]; then
+                        send_osd "WS: ${line#workspace>>}"
+                    fi
+                done
+            } &
+            bg_pid=$!
+            
+            # Use 'wait' which is instantly interruptible by SIGTERM, 
+            # allowing the trap to fire immediately and kill the background process.
+            wait "$bg_pid" 2>/dev/null || true
         else
-            # Failsafe polling fallback (optimized to 1s intervals instead of 0.5s)
             while true; do
                 if ws_info=$(hyprctl activeworkspace 2>/dev/null); then
                     ws_id=$(awk '/workspace ID/ {print $3}' <<< "$ws_info")
