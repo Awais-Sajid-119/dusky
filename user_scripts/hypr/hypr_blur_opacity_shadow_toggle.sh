@@ -32,9 +32,9 @@ readonly OP_ACTIVE_OFF="1.0"
 readonly OP_INACTIVE_OFF="1.0"
 
 # UI Component Alpha Constants (Hex)
-# When Blur is ON, UI components drop to 03 (highly transparent).
+# When Blur is ON, UI components drop to 66 (40% transparent, for maximum glass effect).
 # When Blur is OFF, UI components are ff (100% opaque).
-readonly UI_ALPHA_ON="03"
+readonly UI_ALPHA_ON="66"
 readonly UI_ALPHA_OFF="ff"
 
 # --- Global State for Signal Trapping ---
