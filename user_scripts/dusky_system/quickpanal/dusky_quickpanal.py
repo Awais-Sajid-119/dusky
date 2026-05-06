@@ -2031,7 +2031,7 @@ class QuickPanalWindow(Adw.ApplicationWindow):
 
     def _update_ui_state(self):
         now = datetime.now()
-        self.lbl_time.set_label(now.strftime("%H:%M"))
+        self.lbl_time.set_label(now.strftime("%I:%M"))
         self.lbl_date.set_label(now.strftime("%A, %B %d"))
 
         self.pool.submit(self._fetch_weather)
