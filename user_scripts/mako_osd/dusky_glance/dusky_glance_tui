@@ -20,10 +20,6 @@ declare -r APP_VERSION="v6.0"
 # -----------------------------------------------------------------------------
 # TARGET APPLICATIONS (Extensible)
 # -----------------------------------------------------------------------------
-# Add more target applications here in the future. The format is:
-#   "App-Name-In-Config|Display Tab Name"
-#
-# Example: To target [app-name=dusky-music], add "dusky-music|Music"
 declare -ra TARGET_MODULES=(
     "dusky-glance-narrow|Narrow Glance"
     "dusky-glance-wide|Wide Glance"
@@ -41,16 +37,28 @@ declare -ri TAB_ROW=3
 declare -ri ITEM_START_ROW=$(( HEADER_ROWS + 1 ))
 
 # Dynamically build tabs and scopes based on the TARGET_MODULES array
-declare -a TABS=()
+declare -a TABS=("Global Glance")
 declare -a TARGET_SCOPES=()
+
+# Build global multi-scope string
+_all_scopes=""
+for _mod in "${TARGET_MODULES[@]}"; do
+    _s="app-name=${_mod%%|*}"
+    if [[ -z $_all_scopes ]]; then _all_scopes="$_s"; else _all_scopes+=",${_s}"; fi
+done
+TARGET_SCOPES+=("$_all_scopes")
+
 for _mod in "${TARGET_MODULES[@]}"; do
     TARGET_SCOPES+=("app-name=${_mod%%|*}")
     TABS+=("${_mod##*|}")
 done
-unset _mod
+unset _all_scopes _mod _s
 
 register_items() {
-    local i scope
+    local i scope colors
+    # The literal __DELETE__ command unsets the item, reverting to Matugen globals
+    colors="__DELETE__,#00000000,#000000,#FFFFFF,#FF3333,#33FF33,#3333FF,#FFFF33,#33FFFF,#FF33FF,#9933FF,#FF9933"
+    
     for (( i=0; i < TAB_COUNT; i++ )); do
         scope="${TARGET_SCOPES[i]}"
         
@@ -68,7 +76,7 @@ register_items() {
         # Layout & Positioning
         register "$i" "Anchor"          "anchor|cycle|$scope|top-right,top-center,top-left,bottom-right,bottom-center,bottom-left,center||" "$d_anchor"
         register "$i" "Margin"          "margin|string|$scope|||" "$d_margin"
-        register "$i" "Padding"         "padding|string|$scope|||" "0"
+        register "$i" "Padding"         "padding|int|$scope|0|100|1" "0"
         
         # Dimensions
         register "$i" "Width"           "width|int|$scope|10|1000|10" "$d_width"
@@ -76,14 +84,14 @@ register_items() {
         
         # Borders & Shapes
         register "$i" "Border Size"     "border-size|int|$scope|0|20|1" "0"
-        register "$i" "Border Radius"   "border-radius|string|$scope|||" "20"
+        register "$i" "Border Radius"   "border-radius|int|$scope|0|100|1" "20"
         
         # Visuals & Colors
         register "$i" "Icons Enabled"   "icons|cycle|$scope|0,1||" "0"
         register "$i" "Text Align"      "text-alignment|cycle|$scope|left,center,right||" "center"
-        register "$i" "Text Color"      "text-color|string|$scope|||" ""
-        register "$i" "Background Color" "background-color|string|$scope|||" ""
-        register "$i" "Border Color"    "border-color|string|$scope|||" ""
+        register "$i" "Text Color"      "text-color|cycle|$scope|$colors||" "__DELETE__"
+        register "$i" "Background Color" "background-color|cycle|$scope|$colors||" "__DELETE__"
+        register "$i" "Border Color"    "border-color|cycle|$scope|$colors||" "__DELETE__"
         
         # Behavior
         register "$i" "Default Timeout" "default-timeout|int|$scope|0|60000|500" "5000"
@@ -94,8 +102,6 @@ declare -g _MAKO_RELOAD_PID=""
 
 post_write_action() {
     # Triggered automatically after successful file writes
-    # Includes a background subshell debounce to prevent slamming the daemon
-    # when holding down arrow keys to slide integer values.
     if command -v makoctl >/dev/null 2>&1; then
         if [[ -n $_MAKO_RELOAD_PID ]] && kill -0 "$_MAKO_RELOAD_PID" 2>/dev/null; then
             kill "$_MAKO_RELOAD_PID" 2>/dev/null || true
@@ -479,7 +485,7 @@ validate_item_config() {
         *) log_err "Invalid type for '$label': $type"; exit 1 ;;
     esac
     
-    local re='^[a-zA-Z0-9_.: =/"~'\''-]+(/[a-zA-Z0-9_.: =/"~'\''-]+)*$'
+    local re='^[a-zA-Z0-9_.: =,/"~'\''-]+(/[a-zA-Z0-9_.: =,/"~'\''-]+)*$'
     if [[ -n $block && ! $block =~ $re ]]; then
         log_err "Register Error: Invalid block path for '$label': $block"
         exit 1
@@ -627,6 +633,18 @@ populate_config_cache() {
 
 write_value_to_file() {
     local requested_key=$1 new_val=$2 requested_scope=${3:-}
+
+    # Multi-scope intercept for Global tab
+    if [[ $requested_scope == *","* ]]; then
+        local s final_status=0
+        local -a scopes=()
+        IFS=',' read -r -a scopes <<< "$requested_scope"
+        for s in "${scopes[@]}"; do
+            write_value_to_file "$requested_key" "$new_val" "$s" || final_status=$?
+        done
+        return $final_status
+    fi
+
     local target_key target_scope cache_key current_val
     local lock_fd="" scratch="" src="" current_sig="" scratch_size=""
 
@@ -783,6 +801,23 @@ write_value_to_file() {
 cycle_display_value() {
     local value=$1 options=$2 opt opt_dec
     local -a opts=()
+
+    # Color mapping for intuitive display
+    case "$value" in
+        "__DELETE__") REPLY="Unset (Matugen)"; return 0 ;;
+        "#00000000") REPLY="Transparent"; return 0 ;;
+        "#000000") REPLY="Black"; return 0 ;;
+        "#FFFFFF") REPLY="White"; return 0 ;;
+        "#FF3333") REPLY="Red"; return 0 ;;
+        "#33FF33") REPLY="Green"; return 0 ;;
+        "#3333FF") REPLY="Blue"; return 0 ;;
+        "#FFFF33") REPLY="Yellow"; return 0 ;;
+        "#33FFFF") REPLY="Cyan"; return 0 ;;
+        "#FF33FF") REPLY="Magenta"; return 0 ;;
+        "#9933FF") REPLY="Purple"; return 0 ;;
+        "#FF9933") REPLY="Orange"; return 0 ;;
+    esac
+
     REPLY=$value
     IFS=',' read -r -a opts <<< "$options"
     for opt in "${opts[@]:-}"; do
@@ -809,7 +844,12 @@ load_active_values() {
         normalize_target "$key" "$block"
         norm_key=$TARGET_KEY
         norm_scope=$TARGET_SCOPE
-        cache_key="${norm_key}|${norm_scope}"
+        
+        # Read from the first scope if it's a multi-scope global tab
+        local fetch_scope=$norm_scope
+        if [[ $fetch_scope == *","* ]]; then fetch_scope="${fetch_scope%%,*}"; fi
+        cache_key="${norm_key}|${fetch_scope}"
+        
         if [[ -n ${CONFIG_CACHE[$cache_key]+_} ]]; then
             value=${CONFIG_CACHE[$cache_key]}
             if [[ $type == cycle ]]; then
@@ -1110,7 +1150,13 @@ render_item_list() {
                 case $val in
                     true|yes|1) display="${C_GREEN}ON${C_RESET}" ;;
                     false|no|0) display="${C_RED}OFF${C_RESET}" ;;
-                    "$UNSET_MARKER") display="${C_YELLOW}⚠ UNSET${C_RESET}" ;;
+                    "$UNSET_MARKER") 
+                        if [[ $type == cycle && $dummy_min == *"__DELETE__"* ]]; then
+                            display="${C_YELLOW}Unset (Matugen)${C_RESET}"
+                        else
+                            display="${C_YELLOW}⚠ UNSET${C_RESET}"
+                        fi
+                        ;;
                     *) display="${C_WHITE}${val}${C_RESET}" ;;
                 esac
                 ;;
