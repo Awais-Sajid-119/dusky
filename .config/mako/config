@@ -238,4 +238,3 @@ text-alignment=center
 
 # Standard dismiss action for timer alerts
 on-button-left=dismiss
-
