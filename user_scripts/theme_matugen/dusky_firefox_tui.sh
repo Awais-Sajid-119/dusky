@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # -----------------------------------------------------------------------------
-# Dusky Firefox Theme Manager - Master v1.5.0
-# -----------------------------------------------------------------------------
+# Dusky Firefox Theme Manager - Master v1.6.0
 # Target: Arch Linux / Hyprland / Wayland (Bash 5.3.9+)
 # Architecture: Cache-and-Probe with Idempotent Deployment & Matugen Sync
+# Based on Dusky TUI Engine v5.9
 # -----------------------------------------------------------------------------
 
-set -euo pipefail
+set -Eeuo pipefail
 shopt -s extglob
 
 # =============================================================================
@@ -14,9 +14,9 @@ shopt -s extglob
 # =============================================================================
 
 declare -r APP_TITLE="Dusky Firefox Themer"
-declare -r APP_VERSION="v1.5.0 (Stable)"
+declare -r APP_VERSION="v1.6.0 (Stable)"
 
-declare -r REPO_URL="https://github.com/dim-ghub/dusky-websites/archive/refs/heads/main.tar.gz"
+declare -r REPO_URL="https://github.com/dusklinux/dusky-websites/archive/refs/heads/main.tar.gz"
 declare -r CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/dusky_themer"
 
 # Category Mapping Array (Target -> Tab Name)
@@ -39,31 +39,22 @@ declare -A THEME_CATEGORIES=(
 # ▼ BROWSER CONFIGURATION ▼
 # =============================================================================
 
-# Set to "auto" to intelligently detect installed browsers based on priority,
-# or force a specific one (e.g., "firefox", "zen", "librewolf").
 declare -r PREFERRED_BROWSER="auto"
-
-# Optional: Hardcode a specific profile directory name (e.g., "dd7ma16i.default-release").
-# If left empty ("") or the folder is not found, the script gracefully falls back
-# to autonomous discovery based on the browser engine.
 declare -r PREFERRED_PROFILE_DIR=""
 
-# Define base configuration directories for Gecko-based engines
 declare -A BROWSER_PATHS=(
-    ["firefox"]="$HOME/.mozilla/firefox"
+    ["firefox"]="$HOME/.config/mozilla/firefox"
     ["zen"]="$HOME/.config/zen"
     ["zen_alt"]="$HOME/.zen"
     ["librewolf"]="$HOME/.librewolf"
 )
 
-# Precedence order when PREFERRED_BROWSER="auto"
 declare -ra BROWSER_PRIORITY=("firefox" "zen" "zen_alt" "librewolf")
 
 # =============================================================================
-# ▼ UI CONFIGURATION ▼
+# ▼ UI CONFIGURATION (TUI v5.9 Standard) ▼
 # =============================================================================
 
-# Dimensions & Layout
 declare -ri MAX_DISPLAY_ROWS=14
 declare -ri BOX_INNER_WIDTH=76
 declare -ri ADJUST_THRESHOLD=38
@@ -74,16 +65,15 @@ declare -ri TAB_ROW=3
 declare -ri ITEM_START_ROW=$(( HEADER_ROWS + 1 ))
 
 # =============================================================================
-# ▲ END OF CONFIGURATION ▲
+# ▼ CONSTANTS AND STATE ▼
 # =============================================================================
 
-# --- Pre-computed Constants ---
 declare _h_line_buf
-printf -v _h_line_buf '%*s' "$BOX_INNER_WIDTH" ''
+printf -v _h_line_buf '%*s' "$BOX_INNER_WIDTH" '' || true
 declare -r H_LINE="${_h_line_buf// /─}"
 unset _h_line_buf
 
-# --- ANSI Constants ---
+# ANSI constants.
 declare -r C_RESET=$'\033[0m'
 declare -r C_CYAN=$'\033[1;36m'
 declare -r C_GREEN=$'\033[1;32m'
@@ -99,64 +89,77 @@ declare -r CLR_SCREEN=$'\033[2J'
 declare -r CURSOR_HOME=$'\033[H'
 declare -r CURSOR_HIDE=$'\033[?25l'
 declare -r CURSOR_SHOW=$'\033[?25h'
+declare -r ALT_SCREEN_ON=$'\033[?1049h'
+declare -r ALT_SCREEN_OFF=$'\033[?1049l'
 declare -r MOUSE_ON=$'\033[?1000h\033[?1002h\033[?1006h'
 declare -r MOUSE_OFF=$'\033[?1000l\033[?1002l\033[?1006l'
 
-declare -r ESC_READ_TIMEOUT=0.10
+declare -r ESC_READ_TIMEOUT=0.08
+declare -r READ_LOOP_TIMEOUT=0.25
 
-# --- State Management ---
-declare -i SELECTED_ROW=0
-declare -i CURRENT_TAB=0
-declare -i SCROLL_OFFSET=0
-declare -a TABS=()
+declare -i SELECTED_ROW=0 CURRENT_TAB=0 SCROLL_OFFSET=0
 declare -i TAB_COUNT=0
+declare -a TABS=()
 declare -a TAB_ZONES=()
 declare -i TAB_SCROLL_START=0
 declare ORIGINAL_STTY=""
-declare FF_PROFILE=""
-declare STATUS_MESSAGE=""
+declare -i TUI_STARTED=0
 
-declare -i TERM_ROWS=0
-declare -i TERM_COLS=0
+declare -a TAB_SAVED_ROW=()
+declare -a TAB_SAVED_SCROLL=()
+declare -gi RESIZE_PENDING=0
+
+declare -i TERM_ROWS=0 TERM_COLS=0
 declare -ri MIN_TERM_COLS=$(( BOX_INNER_WIDTH + 2 ))
-declare -ri MIN_TERM_ROWS=$(( HEADER_ROWS + MAX_DISPLAY_ROWS + 5 ))
+declare -ri MIN_TERM_ROWS=$(( HEADER_ROWS + MAX_DISPLAY_ROWS + 6 ))
 
-# --- Click Zones for Arrows ---
+declare STATUS_MESSAGE=""
 declare LEFT_ARROW_ZONE=""
 declare RIGHT_ARROW_ZONE=""
 
-# --- Data Structures ---
+declare FF_PROFILE=""
+
 declare -A ITEM_MAP=()
 declare -A VALUE_CACHE=()
+declare -A DEFAULTS=()
 
-# --- System Helpers ---
+# =============================================================================
+# ▼ SYSTEM HELPERS ▼
+# =============================================================================
 
 log_err() {
-    printf '%s[ERROR]%s %s\n' "$C_RED" "$C_RESET" "$1" >&2
+    printf '%s[ERROR]%s %s\n' "$C_RED" "$C_RESET" "$1" >&2 || true
 }
 
 log_warn() {
-    printf '%s[WARNING]%s %s\n' "$C_YELLOW" "$C_RESET" "$1" >&2
+    printf '%s[WARNING]%s %s\n' "$C_YELLOW" "$C_RESET" "$1" >&2 || true
 }
 
-set_status() {
-    declare -g STATUS_MESSAGE="$1"
-}
-
-clear_status() {
-    declare -g STATUS_MESSAGE=""
-}
+set_status() { declare -g STATUS_MESSAGE="$1"; }
+clear_status() { declare -g STATUS_MESSAGE=""; }
 
 cleanup() {
-    printf '%s%s%s' "$MOUSE_OFF" "$CURSOR_SHOW" "$C_RESET" 2>/dev/null || :
-    if [[ -n "${ORIGINAL_STTY:-}" ]]; then
-        stty "$ORIGINAL_STTY" 2>/dev/null || :
+    if [[ -t 1 ]]; then
+        if (( TUI_STARTED )); then
+            printf '%s%s%s%s' "$MOUSE_OFF" "$CURSOR_SHOW" "$C_RESET" "$ALT_SCREEN_OFF" 2>/dev/null || :
+        elif [[ -n ${ORIGINAL_STTY:-} ]]; then
+            printf '%s%s%s' "$MOUSE_OFF" "$CURSOR_SHOW" "$C_RESET" 2>/dev/null || :
+        fi
     fi
-    printf '\n' 2>/dev/null || :
+
+    if [[ -n ${ORIGINAL_STTY:-} ]]; then
+        stty "$ORIGINAL_STTY" < /dev/tty 2>/dev/null || :
+    fi
+
+    if (( TUI_STARTED )) && [[ -t 1 ]]; then
+        printf '\n' 2>/dev/null || :
+    fi
 }
 
 trap cleanup EXIT
+trap 'exit 129' HUP
 trap 'exit 130' INT
+trap 'exit 131' QUIT
 trap 'exit 143' TERM
 
 update_terminal_size() {
@@ -175,24 +178,30 @@ terminal_size_ok() {
 }
 
 draw_small_terminal_notice() {
-    printf '%s%s' "$CURSOR_HOME" "$CLR_SCREEN"
-    printf '%sTerminal too small%s\n' "$C_RED" "$C_RESET"
-    printf '%sNeed at least:%s %d cols × %d rows\n' "$C_YELLOW" "$C_RESET" "$MIN_TERM_COLS" "$MIN_TERM_ROWS"
-    printf '%sCurrent size:%s %d cols × %d rows\n' "$C_WHITE" "$C_RESET" "$TERM_COLS" "$TERM_ROWS"
-    printf '%sResize the terminal, then continue. Press q to quit.%s%s' "$C_CYAN" "$C_RESET" "$CLR_EOS"
+    printf '%s%s' "$CURSOR_HOME" "$CLR_SCREEN" || true
+    printf '%sTerminal too small%s\n' "$C_RED" "$C_RESET" || true
+    printf '%sNeed at least:%s %d cols × %d rows\n' "$C_YELLOW" "$C_RESET" "$MIN_TERM_COLS" "$MIN_TERM_ROWS" || true
+    printf '%sCurrent size:%s %d cols × %d rows\n' "$C_WHITE" "$C_RESET" "$TERM_COLS" "$TERM_ROWS" || true
+    printf '%sResize the terminal, then continue. Press q to quit.%s%s' "$C_CYAN" "$C_RESET" "$CLR_EOS" || true
+}
+
+get_active_context() {
+    REPLY_CTX=${CURRENT_TAB}
+    REPLY_REF="TAB_ITEMS_${CURRENT_TAB}"
 }
 
 strip_ansi() {
-    local v="$1"
-    v="${v//$'\033'\[*([0-9;:?<=>])@([@A-Z\[\\\]^_\`a-z\{|\}~])/}"
-    REPLY="$v"
+    local v=$1
+    v=${v//$'\033'\[*([0-9;:?<=>])@([@A-Z[\\\]^_\`a-z\{\|\}~])/}
+    REPLY=$v
 }
 
-# --- Core Logic Engine ---
+# =============================================================================
+# ▼ FIREFOX CORE LOGIC ▼
+# =============================================================================
 
 resolve_browser_profile() {
-    local base_dir=""
-    local b_name
+    local base_dir="" b_name profile_path=""
 
     if [[ "${PREFERRED_BROWSER:-auto}" != "auto" ]] && [[ -n "${BROWSER_PATHS[$PREFERRED_BROWSER]:-}" ]]; then
         base_dir="${BROWSER_PATHS[$PREFERRED_BROWSER]}"
@@ -205,15 +214,12 @@ resolve_browser_profile() {
         done
     fi
 
-    # Benign exit: Do not fail the script if no browser is installed.
     if [[ -z "$base_dir" || ! -d "$base_dir" ]]; then
         log_warn "No supported browser installation found (checked priority: ${BROWSER_PRIORITY[*]})."
         FF_PROFILE=""
         return 0
     fi
 
-    local profile_path=""
-    
     if [[ -n "${PREFERRED_PROFILE_DIR:-}" && -d "$base_dir/$PREFERRED_PROFILE_DIR" ]]; then
         profile_path="$base_dir/$PREFERRED_PROFILE_DIR"
     fi
@@ -221,12 +227,10 @@ resolve_browser_profile() {
     if [[ -z "$profile_path" ]]; then
         profile_path=$(find "$base_dir" -maxdepth 1 -type d -name "*.default-release" | head -n 1)
         [[ -z "$profile_path" ]] && profile_path=$(find "$base_dir" -maxdepth 1 -type d -name "*.default" | head -n 1)
+        [[ -z "$profile_path" ]] && profile_path=$(find "$base_dir" -maxdepth 1 -type d -name "*.Default*" | head -n 1)
+        [[ -z "$profile_path" ]] && profile_path=$(find "$base_dir" -maxdepth 2 -type f -name "prefs.js" -exec dirname {} \; | head -n 1)
     fi
-    
-    [[ -z "$profile_path" ]] && profile_path=$(find "$base_dir" -maxdepth 1 -type d -name "*.Default*" | head -n 1)
-    [[ -z "$profile_path" ]] && profile_path=$(find "$base_dir" -maxdepth 2 -type f -name "prefs.js" -exec dirname {} \; | head -n 1)
 
-    # Benign exit: Browser is installed but no profile initialized yet.
     if [[ -z "$profile_path" ]]; then
         log_warn "Could not determine active browser profile in $base_dir."
         FF_PROFILE=""
@@ -249,7 +253,6 @@ ensure_matugen_integration() {
 
     LC_ALL=C awk '
     BEGIN {
-        # Dynamically define quotes to safely bypass Bash string collisions
         triple_sq = sprintf("%c%c%c", 39, 39, 39)
         triple_dq = "\"\"\""
     }
@@ -257,7 +260,6 @@ ensure_matugen_integration() {
     END {
         start = 0; end = n; out_idx = 0; is_commented = 0;
         
-        # Scan for target template block 
         for (i=1; i<=n; i++) {
             if (lines[i] ~ /^[[:space:]]*#?[[:space:]]*\[templates\.firefox_websites\]/) {
                 start = i
@@ -270,22 +272,16 @@ ensure_matugen_integration() {
             }
         }
 
-        # Forcefully clean any existing post_hook inside the block bounds
         if (start) {
             for (i=start; i<=end; i++) {
-                if (lines[i] ~ /^[[:space:]]*#?[[:space:]]*output_path/) {
-                    out_idx = i
-                }
+                if (lines[i] ~ /^[[:space:]]*#?[[:space:]]*output_path/) { out_idx = i }
             }
-            if (!out_idx) out_idx = start # Fallback insertion point
+            if (!out_idx) out_idx = start
             
             for (i=start; i<=end; i++) {
                 if (lines[i] ~ /^[[:space:]]*#?[[:space:]]*post_hook[[:space:]]*=/) {
-                    hook_start = i
-                    hook_end = i
-                    
-                    has_sq = index(lines[i], triple_sq)
-                    has_dq = index(lines[i], triple_dq)
+                    hook_start = i; hook_end = i
+                    has_sq = index(lines[i], triple_sq); has_dq = index(lines[i], triple_dq)
                     
                     if (has_sq > 0 || has_dq > 0) {
                         quote_type = (has_sq > 0) ? triple_sq : triple_dq
@@ -303,7 +299,6 @@ ensure_matugen_integration() {
             }
         }
 
-        # Reconstruct file with the unconditionally enforced hook
         prefix = is_commented ? "# " : ""
         for (i=1; i<=n; i++) {
             if (lines[i] == "\033DEL\033") continue
@@ -337,13 +332,10 @@ sync_cache() {
         exit 1
     fi
     
-    # Overwrites existing templates with fresh sync
     rm -f "$CACHE_DIR"/*.css 2>/dev/null || :
-    
     local tmp_dir
     tmp_dir=$(mktemp -d)
     tar -xzf "$tmp_tar" -C "$tmp_dir"
-    
     find "$tmp_dir" -type f -name "*.css" -exec cp {} "$CACHE_DIR/" \;
     
     rm -f "$tmp_tar"
@@ -383,6 +375,8 @@ probe_cache() {
     local -i i
     for (( i = 0; i < TAB_COUNT; i++ )); do
         declare -ga "TAB_ITEMS_${i}=()"
+        TAB_SAVED_ROW+=("0")
+        TAB_SAVED_SCROLL+=("0")
     done
     
     local user_content=""
@@ -399,8 +393,10 @@ probe_cache() {
                 state="true"
             fi
             
-            ITEM_MAP="${i}::${file}"="${file}"
+            ITEM_MAP["${i}::${file}"]="${file}|bool||||"
             VALUE_CACHE["${i}::${file}"]="$state"
+            DEFAULTS["${i}::${file}"]="false"
+            
             local -n _reg_tab_ref="TAB_ITEMS_${i}"
             _reg_tab_ref+=("$file")
         done
@@ -410,7 +406,6 @@ probe_cache() {
 deploy_changes() {
     local mode="${1:-}"
 
-    # Safely exit with success if no browser exists
     if [[ -z "$FF_PROFILE" ]]; then
         local msg="No compatible browser detected. Skipping deployment."
         if [[ "$mode" != "--headless" ]]; then
@@ -423,7 +418,7 @@ deploy_changes() {
     
     if [[ "$mode" != "--headless" ]]; then
         set_status "Deploying to Browser Profile..."
-        draw_ui
+        draw_ui || true
     else
         printf '%s[*] Deploying to Browser Profile...%s\n' "$C_CYAN" "$C_RESET"
     fi
@@ -435,7 +430,7 @@ deploy_changes() {
     mkdir -p "$websites_dir"
     touch "$user_content"
     
-    local item key val
+    local item val
     local -a to_import=()
     local -i i
     
@@ -443,32 +438,24 @@ deploy_changes() {
         local -n _items="TAB_ITEMS_${i}"
         for item in "${_items[@]}"; do
             val="${VALUE_CACHE["${i}::${item}"]}"
-            key="${item}"
             if [[ "$val" == "true" ]]; then
-                cp -f "$CACHE_DIR/$key" "$websites_dir/"
-                to_import+=("@import url(\"websites/$key\");")
+                cp -f "$CACHE_DIR/$item" "$websites_dir/"
+                to_import+=("@import url(\"websites/$item\");")
             else
-                rm -f "$websites_dir/$key" 2>/dev/null || :
+                rm -f "$websites_dir/$item" 2>/dev/null || :
             fi
         done
     done
 
-    # Strict Idempotent standard: strip old theme imports, prepend new ones
     local tmp_css
     tmp_css=$(mktemp)
     
-    # 1. Always enforce colors.css at the absolute top for Matugen integration
     printf '@import url("colors.css");\n' > "$tmp_css"
-    
-    # 2. Write the new website imports directly below colors.css
     if (( ${#to_import[@]} > 0 )); then
         printf "%s\n" "${to_import[@]}" >> "$tmp_css"
     fi
     
-    # 3. Append existing content (excluding legacy dusky imports and old colors.css imports)
     grep -vE '^[[:space:]]*@import url\("?(websites/[^"]+\.css|colors\.css)"?\);' "$user_content" >> "$tmp_css" || true
-    
-    # 4. Replace atomically
     mv -f "$tmp_css" "$user_content"
     
     if [[ -x "$HOME/user_scripts/theme_matugen/theme_ctl.sh" ]]; then
@@ -480,24 +467,57 @@ deploy_changes() {
     fi
 }
 
-# --- Context Helpers ---
-
-get_active_context() {
-    REPLY_CTX="${CURRENT_TAB}"
-    REPLY_REF="TAB_ITEMS_${CURRENT_TAB}"
+run_autonomous_all() {
+    local -i i
+    local item
+    
+    printf '%s[*] Autonomously enabling all available site themes...%s\n' "$C_CYAN" "$C_RESET"
+    
+    for (( i=0; i<TAB_COUNT; i++ )); do
+        local -n _items="TAB_ITEMS_${i}"
+        for item in "${_items[@]}"; do
+            VALUE_CACHE["${i}::${item}"]="true"
+        done
+    done
+    
+    deploy_changes "--headless"
+    printf '%s[*] Processing complete.%s\n' "$C_GREEN" "$C_RESET"
+    exit 0
 }
 
+# =============================================================================
+# ▼ VALUE ENGINE ▼
+# =============================================================================
+
 modify_value() {
-    local label="$1"
-    local REPLY_REF REPLY_CTX
+    local label=$1
+    local REPLY_REF REPLY_CTX current new_val
     get_active_context
 
-    local current="${VALUE_CACHE["${REPLY_CTX}::${label}"]:-false}"
-    local new_val="true"
-    if [[ "$current" == "true" ]]; then new_val="false"; fi
+    current=${VALUE_CACHE["${REPLY_CTX}::${label}"]:-false}
+    if [[ $current == "true" ]]; then
+        new_val="false"
+    else
+        new_val="true"
+    fi
 
-    VALUE_CACHE["${REPLY_CTX}::${label}"]="$new_val"
+    VALUE_CACHE["${REPLY_CTX}::${label}"]=$new_val
     set_status "Modified '${label}'. Press [Enter] to Deploy."
+    return 0
+}
+
+reset_current_item() {
+    local REPLY_REF REPLY_CTX label def_val
+    get_active_context
+    local -n _items_ref="$REPLY_REF"
+    if (( ${#_items_ref[@]} == 0 )); then return 0; fi
+    label=${_items_ref[SELECTED_ROW]}
+    
+    def_val=${DEFAULTS["${REPLY_CTX}::${label}"]:-false}
+    VALUE_CACHE["${REPLY_CTX}::${label}"]=$def_val
+    
+    set_status "Reset '${label}'. Press [Enter] to Deploy."
+    return 0
 }
 
 reset_defaults() {
@@ -509,76 +529,66 @@ reset_defaults() {
             VALUE_CACHE["${i}::${item}"]="false"
         done
     done
-    set_status "Selections cleared. Press [Enter] to Deploy."
+    set_status "All selections cleared. Press [Enter] to Deploy."
+    return 0
 }
 
-# --- UI Rendering Engine ---
+# =============================================================================
+# ▼ RENDERING ENGINE ▼
+# =============================================================================
 
 compute_scroll_window() {
     local -i count=$1
     if (( count == 0 )); then
-        SELECTED_ROW=0
-        SCROLL_OFFSET=0
-        _vis_start=0
-        _vis_end=0
-        return
+        SELECTED_ROW=0; SCROLL_OFFSET=0; _vis_start=0; _vis_end=0; return 0
     fi
-
-    if (( SELECTED_ROW < 0 )); then SELECTED_ROW=0; fi
-    if (( SELECTED_ROW >= count )); then SELECTED_ROW=$(( count - 1 )); fi
-
-    if (( SELECTED_ROW < SCROLL_OFFSET )); then
-        SCROLL_OFFSET=$SELECTED_ROW
-    elif (( SELECTED_ROW >= SCROLL_OFFSET + MAX_DISPLAY_ROWS )); then
-        SCROLL_OFFSET=$(( SELECTED_ROW - MAX_DISPLAY_ROWS + 1 ))
-    fi
-
+    (( SELECTED_ROW < 0 )) && SELECTED_ROW=0
+    (( SELECTED_ROW >= count )) && SELECTED_ROW=$(( count - 1 ))
+    (( SELECTED_ROW < SCROLL_OFFSET )) && SCROLL_OFFSET=$SELECTED_ROW
+    (( SELECTED_ROW >= SCROLL_OFFSET + MAX_DISPLAY_ROWS )) && SCROLL_OFFSET=$(( SELECTED_ROW - MAX_DISPLAY_ROWS + 1 ))
     local -i max_scroll=$(( count - MAX_DISPLAY_ROWS ))
-    if (( max_scroll < 0 )); then max_scroll=0; fi
-    if (( SCROLL_OFFSET > max_scroll )); then SCROLL_OFFSET=$max_scroll; fi
-
+    (( max_scroll < 0 )) && max_scroll=0
+    (( SCROLL_OFFSET > max_scroll )) && SCROLL_OFFSET=$max_scroll
     _vis_start=$SCROLL_OFFSET
     _vis_end=$(( SCROLL_OFFSET + MAX_DISPLAY_ROWS ))
-    if (( _vis_end > count )); then _vis_end=$count; fi
+    (( _vis_end > count )) && _vis_end=$count
+    return 0
 }
 
 render_scroll_indicator() {
-    local -n _rsi_buf=$1
-    local position="$2"
+    local -n _buf=$1
+    local position=$2
     local -i count=$3 boundary=$4
-
-    if [[ "$position" == "above" ]]; then
-        if (( SCROLL_OFFSET > 0 )); then
-            _rsi_buf+="${C_GREY}    ▲ (more above)${CLR_EOL}${C_RESET}"$'\n'
-        else
-            _rsi_buf+="${CLR_EOL}"$'\n'
-        fi
+    if [[ $position == above ]]; then
+        if (( SCROLL_OFFSET > 0 )); then _buf+="${C_GREY}    ▲ (more above)${CLR_EOL}${C_RESET}"$'\n'; else _buf+="${CLR_EOL}"$'\n'; fi
     else
         if (( count > MAX_DISPLAY_ROWS )); then
             local position_info="[$(( SELECTED_ROW + 1 ))/${count}]"
-            if (( boundary < count )); then
-                _rsi_buf+="${C_GREY}    ▼ (more below) ${position_info}${CLR_EOL}${C_RESET}"$'\n'
-            else
-                _rsi_buf+="${C_GREY}                   ${position_info}${CLR_EOL}${C_RESET}"$'\n'
-            fi
+            if (( boundary < count )); then _buf+="${C_GREY}    ▼ (more below) ${position_info}${CLR_EOL}${C_RESET}"$'\n'; else _buf+="${C_GREY}                   ${position_info}${CLR_EOL}${C_RESET}"$'\n'; fi
         else
-            _rsi_buf+="${CLR_EOL}"$'\n'
+            _buf+="${CLR_EOL}"$'\n'
         fi
     fi
 }
 
 render_item_list() {
-    local -n _ril_buf=$1
-    local -n _ril_items=$2
-    local _ril_ctx="$3"
-    local -i _ril_vs=$4 _ril_ve=$5
+    local -n _buf=$1
+    local -n _items=$2
+    local ctx=$3
+    local -i vs=$4 ve=$5 ri
+    local item val display padded_item max_len def_marker def_val
 
-    local -i ri
-    local item val display padded_item
-
-    for (( ri = _ril_vs; ri < _ril_ve; ri++ )); do
-        item="${_ril_items[ri]}"
-        val="${VALUE_CACHE["${_ril_ctx}::${item}"]:-false}"
+    for (( ri = vs; ri < ve; ri++ )); do
+        item=${_items[ri]}
+        val=${VALUE_CACHE["${ctx}::${item}"]:-false}
+        def_val=${DEFAULTS["${ctx}::${item}"]:-false}
+        
+        def_marker="  "
+        if [[ $val != "$def_val" ]]; then
+            def_marker="${C_RED}● ${C_RESET}"
+        else
+            def_marker="${C_YELLOW}● ${C_RESET}"
+        fi
 
         case "$val" in
             true)  display="${C_GREEN}[■] ENABLED${C_RESET}" ;;
@@ -586,7 +596,7 @@ render_item_list() {
             *)     display="${C_YELLOW}⚠ UNKNOWN${C_RESET}" ;;
         esac
 
-        local -i max_len=$(( ITEM_PADDING - 1 ))
+        max_len=$(( ITEM_PADDING - 1 ))
         if (( ${#item} > ITEM_PADDING )); then
             printf -v padded_item "%-${max_len}s…" "${item:0:max_len}"
         else
@@ -594,142 +604,121 @@ render_item_list() {
         fi
 
         if (( ri == SELECTED_ROW )); then
-            _ril_buf+="${C_CYAN} ➤ ${C_INVERSE}${padded_item}${C_RESET} : ${display}${CLR_EOL}"$'\n'
+            _buf+="${C_CYAN} ➤ ${C_INVERSE}${padded_item}${C_RESET} ${def_marker}: ${display}${CLR_EOL}"$'\n'
         else
-            _ril_buf+="    ${padded_item} : ${display}${CLR_EOL}"$'\n'
+            _buf+="    ${padded_item} ${def_marker}: ${display}${CLR_EOL}"$'\n'
         fi
     done
 
-    local -i rows_rendered=$(( _ril_ve - _ril_vs ))
-    for (( ri = rows_rendered; ri < MAX_DISPLAY_ROWS; ri++ )); do
-        _ril_buf+="${CLR_EOL}"$'\n'
-    done
+    local -i rows_rendered=$(( ve - vs ))
+    for (( ri = rows_rendered; ri < MAX_DISPLAY_ROWS; ri++ )); do _buf+="${CLR_EOL}"$'\n'; done
 }
 
 draw_ui() {
     update_terminal_size
+    if ! terminal_size_ok; then draw_small_terminal_notice; return; fi
 
-    if ! terminal_size_ok; then
-        draw_small_terminal_notice
-        return
-    fi
+    local buf="" pad_buf="" tab_line name display_name item_var
+    local -i i current_col=3 zone_start count left_pad right_pad vis_len _vis_start _vis_end
 
-    local buf="" pad_buf=""
-    local -i i current_col=3 zone_start count
-    local -i left_pad right_pad vis_len
-    local -i _vis_start _vis_end
-
-    buf+="${CURSOR_HOME}"
-    buf+="${C_MAGENTA}┌${H_LINE}┐${C_RESET}${CLR_EOL}"$'\n'
-
+    buf+="${CURSOR_HOME}${C_MAGENTA}┌${H_LINE}┐${C_RESET}${CLR_EOL}"$'\n'
     strip_ansi "$APP_TITLE"; local -i t_len=${#REPLY}
     strip_ansi "$APP_VERSION"; local -i v_len=${#REPLY}
     vis_len=$(( t_len + v_len + 1 ))
-    left_pad=$(( (BOX_INNER_WIDTH - vis_len) / 2 ))
-    right_pad=$(( BOX_INNER_WIDTH - vis_len - left_pad ))
-
+    left_pad=$(( (BOX_INNER_WIDTH - vis_len) / 2 )); (( left_pad < 0 )) && left_pad=0
+    right_pad=$(( BOX_INNER_WIDTH - vis_len - left_pad )); (( right_pad < 0 )) && right_pad=0
     printf -v pad_buf '%*s' "$left_pad" ''
     buf+="${C_MAGENTA}│${pad_buf}${C_WHITE}${APP_TITLE} ${C_CYAN}${APP_VERSION}${C_MAGENTA}"
     printf -v pad_buf '%*s' "$right_pad" ''
     buf+="${pad_buf}│${C_RESET}${CLR_EOL}"$'\n'
 
-    if (( TAB_SCROLL_START > CURRENT_TAB )); then
-        TAB_SCROLL_START=$CURRENT_TAB
-    fi
-    if (( TAB_SCROLL_START < 0 )); then
-        TAB_SCROLL_START=0
-    fi
-
-    local tab_line
+    if (( TAB_SCROLL_START > CURRENT_TAB )); then TAB_SCROLL_START=$CURRENT_TAB; fi
+    if (( TAB_SCROLL_START < 0 )); then TAB_SCROLL_START=0; fi
     local -i max_tab_width=$(( BOX_INNER_WIDTH - 6 ))
-
-    LEFT_ARROW_ZONE=""
-    RIGHT_ARROW_ZONE=""
+    LEFT_ARROW_ZONE=""; RIGHT_ARROW_ZONE=""
 
     while true; do
         tab_line="${C_MAGENTA}│ "
         current_col=3
         TAB_ZONES=()
         local -i used_len=0
-
+        
         if (( TAB_SCROLL_START > 0 )); then
             tab_line+="${C_YELLOW}«${C_RESET} "
             LEFT_ARROW_ZONE="$current_col:$(( current_col + 1 ))"
-            used_len=$(( used_len + 2 ))
-            current_col=$(( current_col + 2 ))
         else
             tab_line+="  "
-            used_len=$(( used_len + 2 ))
-            current_col=$(( current_col + 2 ))
         fi
+        used_len=$(( used_len + 2 )); current_col=$(( current_col + 2 ))
 
         for (( i = TAB_SCROLL_START; i < TAB_COUNT; i++ )); do
-            local name="${TABS[i]}"
-            local display_name="$name"
+            name=${TABS[i]}; display_name=$name
             local -i tab_name_len=${#name}
-            local -i chunk_len=$(( tab_name_len + 4 ))
+            
+            local -i is_last=0
+            if (( i == TAB_COUNT - 1 )); then is_last=1; fi
+            
+            local -i chunk_len=$(( tab_name_len + 2 ))
+            if (( ! is_last )); then chunk_len=$(( chunk_len + 2 )); fi
+            
             local -i reserve=0
-
-            if (( i < TAB_COUNT - 1 )); then reserve=2; fi
-
+            if (( ! is_last )); then reserve=2; fi
+            
             if (( used_len + chunk_len + reserve > max_tab_width )); then
                 if (( i < CURRENT_TAB || (i == CURRENT_TAB && TAB_SCROLL_START < CURRENT_TAB) )); then
-                    TAB_SCROLL_START=$(( TAB_SCROLL_START + 1 ))
-                    continue 2
+                    TAB_SCROLL_START=$(( TAB_SCROLL_START + 1 )); continue 2
                 fi
-
                 if (( i == CURRENT_TAB )); then
-                    local -i avail_label=$(( max_tab_width - used_len - reserve - 4 ))
+                    local -i avail_label=$(( max_tab_width - used_len - reserve - 2 ))
+                    if (( ! is_last )); then avail_label=$(( avail_label - 2 )); fi
+                    
                     if (( avail_label < 1 )); then avail_label=1; fi
-
                     if (( tab_name_len > avail_label )); then
-                        if (( avail_label == 1 )); then
-                            display_name="…"
-                        else
-                            display_name="${name:0:avail_label-1}…"
-                        fi
+                        if (( avail_label == 1 )); then display_name="…"; else display_name="${name:0:avail_label-1}…"; fi
                         tab_name_len=${#display_name}
-                        chunk_len=$(( tab_name_len + 4 ))
+                        chunk_len=$(( tab_name_len + 2 ))
+                        if (( ! is_last )); then chunk_len=$(( chunk_len + 2 )); fi
                     fi
-
                     zone_start=$current_col
-                    tab_line+="${C_CYAN}${C_INVERSE} ${display_name} ${C_RESET}${C_MAGENTA}│ "
+                    if (( is_last )); then
+                        tab_line+="${C_CYAN}${C_INVERSE} ${display_name} ${C_RESET}"
+                    else
+                        tab_line+="${C_CYAN}${C_INVERSE} ${display_name} ${C_RESET}${C_MAGENTA}│ "
+                    fi
                     TAB_ZONES+=("${zone_start}:$(( zone_start + tab_name_len + 1 ))")
-                    used_len=$(( used_len + chunk_len ))
-                    current_col=$(( current_col + chunk_len ))
-
-                    if (( i < TAB_COUNT - 1 )); then
+                    used_len=$(( used_len + chunk_len )); current_col=$(( current_col + chunk_len ))
+                    if (( ! is_last )); then
                         tab_line+="${C_YELLOW}» ${C_RESET}"
                         RIGHT_ARROW_ZONE="$current_col:$(( current_col + 1 ))"
                         used_len=$(( used_len + 2 ))
                     fi
                     break
                 fi
-
                 tab_line+="${C_YELLOW}» ${C_RESET}"
                 RIGHT_ARROW_ZONE="$current_col:$(( current_col + 1 ))"
                 used_len=$(( used_len + 2 ))
                 break
             fi
-
+            
             zone_start=$current_col
             if (( i == CURRENT_TAB )); then
-                tab_line+="${C_CYAN}${C_INVERSE} ${display_name} ${C_RESET}${C_MAGENTA}│ "
+                if (( is_last )); then
+                    tab_line+="${C_CYAN}${C_INVERSE} ${display_name} ${C_RESET}"
+                else
+                    tab_line+="${C_CYAN}${C_INVERSE} ${display_name} ${C_RESET}${C_MAGENTA}│ "
+                fi
             else
-                tab_line+="${C_GREY} ${display_name} ${C_MAGENTA}│ "
+                if (( is_last )); then
+                    tab_line+="${C_GREY} ${display_name} ${C_RESET}"
+                else
+                    tab_line+="${C_GREY} ${display_name} ${C_MAGENTA}│ "
+                fi
             fi
-
             TAB_ZONES+=("${zone_start}:$(( zone_start + tab_name_len + 1 ))")
-            used_len=$(( used_len + chunk_len ))
-            current_col=$(( current_col + chunk_len ))
+            used_len=$(( used_len + chunk_len )); current_col=$(( current_col + chunk_len ))
         done
-
         local -i pad=$(( BOX_INNER_WIDTH - used_len - 1 ))
-        if (( pad > 0 )); then
-            printf -v pad_buf '%*s' "$pad" ''
-            tab_line+="$pad_buf"
-        fi
-
+        if (( pad > 0 )); then printf -v pad_buf '%*s' "$pad" ''; tab_line+="$pad_buf"; fi
         tab_line+="${C_MAGENTA}│${C_RESET}"
         break
     done
@@ -737,84 +726,90 @@ draw_ui() {
     buf+="${tab_line}${CLR_EOL}"$'\n'
     buf+="${C_MAGENTA}└${H_LINE}┘${C_RESET}${CLR_EOL}"$'\n'
 
-    local items_var="TAB_ITEMS_${CURRENT_TAB}"
-    local -n _draw_items_ref="$items_var"
+    item_var="TAB_ITEMS_${CURRENT_TAB}"
+    local -n _draw_items_ref="$item_var"
     count=${#_draw_items_ref[@]}
-
     compute_scroll_window "$count"
-    render_scroll_indicator buf "above" "$count" "$_vis_start"
+    render_scroll_indicator buf above "$count" "$_vis_start"
     render_item_list buf _draw_items_ref "${CURRENT_TAB}" "$_vis_start" "$_vis_end"
-    render_scroll_indicator buf "below" "$count" "$_vis_end"
+    render_scroll_indicator buf below "$count" "$_vis_end"
 
-    buf+=$'\n'"${C_CYAN} [Tab] Category  [Space/←/→] Toggle  [r] Clear All  [Enter] Deploy  [q] Quit${C_RESET}${CLR_EOL}"$'\n'
-    if [[ -n "$STATUS_MESSAGE" ]]; then
-        buf+="${C_CYAN} Status:  ${C_RED}${STATUS_MESSAGE}${C_RESET}${CLR_EOL}${CLR_EOS}"
+    buf+=$'\n'"${C_CYAN} [Tab] Category   [Space/←/→] Toggle   [Enter] Deploy   [q] Quit${C_RESET}${CLR_EOL}"$'\n'
+    buf+="${C_CYAN} [r] Reset Item   [R] Clear All   ${C_YELLOW}●${C_CYAN} Default  ${C_RED}●${C_CYAN} Modified${C_RESET}${CLR_EOL}"$'\n'
+    if [[ -n $STATUS_MESSAGE ]]; then
+        buf+="${C_CYAN} Status: ${C_RED}${STATUS_MESSAGE}${C_RESET}${CLR_EOL}${CLR_EOS}"
     elif [[ -z "$FF_PROFILE" ]]; then
         buf+="${C_CYAN} Profile: ${C_YELLOW}None detected${C_RESET}${CLR_EOL}${CLR_EOS}"
     else
         buf+="${C_CYAN} Profile: ${C_WHITE}${FF_PROFILE}${C_RESET}${CLR_EOL}${CLR_EOS}"
     fi
-    printf '%s' "$buf"
+    printf '%s' "$buf" || true
 }
 
-# --- Input Handling ---
+# =============================================================================
+# ▼ NAVIGATION AND INPUT ▼
+# =============================================================================
 
 navigate() {
-    local -i dir=$1
+    local -i dir=$1 count
     local REPLY_REF REPLY_CTX
     get_active_context
     local -n _nav_items_ref="$REPLY_REF"
-    local -i count=${#_nav_items_ref[@]}
+    count=${#_nav_items_ref[@]}
     if (( count == 0 )); then return 0; fi
     SELECTED_ROW=$(( (SELECTED_ROW + dir + count) % count ))
+    clear_status
 }
 
 navigate_page() {
-    local -i dir=$1
+    local -i dir=$1 count
     local REPLY_REF REPLY_CTX
     get_active_context
-    local -n _navp_items_ref="$REPLY_REF"
-    local -i count=${#_navp_items_ref[@]}
+    local -n _items_ref="$REPLY_REF"
+    count=${#_items_ref[@]}
     if (( count == 0 )); then return 0; fi
     SELECTED_ROW=$(( SELECTED_ROW + dir * MAX_DISPLAY_ROWS ))
     if (( SELECTED_ROW < 0 )); then SELECTED_ROW=0; fi
     if (( SELECTED_ROW >= count )); then SELECTED_ROW=$(( count - 1 )); fi
+    clear_status
 }
 
 navigate_end() {
-    local -i target=$1
+    local -i target=$1 count
     local REPLY_REF REPLY_CTX
     get_active_context
-    local -n _nave_items_ref="$REPLY_REF"
-    local -i count=${#_nave_items_ref[@]}
+    local -n _items_ref="$REPLY_REF"
+    count=${#_items_ref[@]}
     if (( count == 0 )); then return 0; fi
-    if (( target == 0 )); then
-        SELECTED_ROW=0
-    else
-        SELECTED_ROW=$(( count - 1 ))
-    fi
+    if (( target == 0 )); then SELECTED_ROW=0; else SELECTED_ROW=$(( count - 1 )); fi
+    clear_status
 }
 
 switch_tab() {
     local -i dir=${1:-1}
+    TAB_SAVED_ROW[CURRENT_TAB]=$SELECTED_ROW
+    TAB_SAVED_SCROLL[CURRENT_TAB]=$SCROLL_OFFSET
     CURRENT_TAB=$(( (CURRENT_TAB + dir + TAB_COUNT) % TAB_COUNT ))
-    SELECTED_ROW=0
-    SCROLL_OFFSET=0
+    SELECTED_ROW=${TAB_SAVED_ROW[CURRENT_TAB]:-0}
+    SCROLL_OFFSET=${TAB_SAVED_SCROLL[CURRENT_TAB]:-0}
+    clear_status
 }
 
 set_tab() {
     local -i idx=$1
     if (( idx != CURRENT_TAB && idx >= 0 && idx < TAB_COUNT )); then
+        TAB_SAVED_ROW[CURRENT_TAB]=$SELECTED_ROW
+        TAB_SAVED_SCROLL[CURRENT_TAB]=$SCROLL_OFFSET
         CURRENT_TAB=$idx
-        SELECTED_ROW=0
-        SCROLL_OFFSET=0
+        SELECTED_ROW=${TAB_SAVED_ROW[CURRENT_TAB]:-0}
+        SCROLL_OFFSET=${TAB_SAVED_SCROLL[CURRENT_TAB]:-0}
+        clear_status
     fi
 }
 
 handle_mouse() {
     local input="$1"
-    local -i button x y i start end
-    local zone
+    local -i button x y i start end zone
 
     local body="${input#'[<'}"
     if [[ "$body" == "$input" ]]; then return 0; fi
@@ -827,12 +822,11 @@ handle_mouse() {
     IFS=';' read -r field1 field2 field3 <<< "$body"
     if [[ ! "$field1" =~ ^[0-9]+$ || ! "$field2" =~ ^[0-9]+$ || ! "$field3" =~ ^[0-9]+$ ]]; then return 0; fi
 
-    button=$field1
-    x=$field2
-    y=$field3
+    button=$field1; x=$field2; y=$field3
 
     if (( button == 64 )); then navigate -1; return 0; fi
     if (( button == 65 )); then navigate 1; return 0; fi
+
     if [[ "$terminator" != "M" ]]; then return 0; fi
 
     if (( y == TAB_ROW )); then
@@ -848,8 +842,7 @@ handle_mouse() {
             if (( x >= start && x <= end )); then switch_tab 1; return 0; fi
         fi
 
-        for (( i = 0; i < TAB_COUNT; i++ )); do
-            if [[ -z "${TAB_ZONES[i]:-}" ]]; then continue; fi
+        for (( i = 0; i < ${#TAB_ZONES[@]}; i++ )); do
             zone="${TAB_ZONES[i]}"
             start="${zone%%:*}"
             end="${zone##*:}"
@@ -858,6 +851,7 @@ handle_mouse() {
                 return 0
             fi
         done
+        return 0
     fi
 
     local -i effective_start=$(( ITEM_START_ROW + 1 ))
@@ -880,92 +874,74 @@ read_escape_seq() {
     local -n _esc_out=$1
     _esc_out=""
     local char
-
-    if ! IFS= read -rsn1 -t "$ESC_READ_TIMEOUT" char; then return 1; fi
-
-    _esc_out+="$char"
-    if [[ "$char" == '[' || "$char" == 'O' ]]; then
-        while IFS= read -rsn1 -t "$ESC_READ_TIMEOUT" char; do
-            _esc_out+="$char"
-            if [[ "$char" =~ [a-zA-Z~] ]]; then break; fi
+    if ! IFS= read -rsn1 -t "$ESC_READ_TIMEOUT" char < /dev/tty; then return 1; fi
+    _esc_out+=$char
+    if [[ $char == '[' || $char == 'O' ]]; then
+        while IFS= read -rsn1 -t "$ESC_READ_TIMEOUT" char < /dev/tty; do
+            _esc_out+=$char
+            [[ $char =~ [a-zA-Z~] ]] && break
         done
     fi
     return 0
 }
 
 handle_input_router() {
-    local key="$1"
-    local escape_seq=""
-
-    if [[ "$key" == $'\x1b' ]]; then
+    local key=$1 escape_seq=""
+    if [[ $key == $'\x1b' ]]; then
         if read_escape_seq escape_seq; then
-            key="$escape_seq"
-            if [[ "$key" == "" || "$key" == $'\n' ]]; then key=$'\e\n'; fi
+            key=$escape_seq
+            if [[ $key == "" || $key == $'\n' ]]; then key=$'\e\n'; fi
         else
-            key="ESC"
+            key=ESC
         fi
     fi
-
+    
     if ! terminal_size_ok; then
-        case "$key" in q|Q|$'\x03') exit 0 ;; esac
+        case $key in q|Q|$'\x03') exit 0 ;; esac
         return 0
     fi
-
+    
     local -n _active_tab="TAB_ITEMS_${CURRENT_TAB}"
     local active_item=""
     if (( ${#_active_tab[@]} > 0 && SELECTED_ROW >= 0 && SELECTED_ROW < ${#_active_tab[@]} )); then
         active_item="${_active_tab[SELECTED_ROW]}"
     fi
 
-    case "$key" in
-        '[Z')                switch_tab -1; return ;;
-        '[A'|'OA')           navigate -1; return ;;
-        '[B'|'OB')           navigate 1; return ;;
+    case $key in
+        '[Z') switch_tab -1; return ;;
+        '[A'|'OA') navigate -1; return ;;
+        '[B'|'OB') navigate 1; return ;;
         '[C'|'OC'|'[D'|'OD') [[ -n "$active_item" ]] && modify_value "$active_item"; return ;;
-        '[5~')               navigate_page -1; return ;;
-        '[6~')               navigate_page 1; return ;;
-        '[H'|'[1~')          navigate_end 0; return ;;
-        '[F'|'[4~')          navigate_end 1; return ;;
-        '['*'<'*[Mm])        handle_mouse "$key"; return ;;
+        '[5~') navigate_page -1; return ;;
+        '[6~') navigate_page 1; return ;;
+        '[H'|'[1~') navigate_end 0; return ;;
+        '[F'|'[4~') navigate_end 1; return ;;
+        '['*'<'*[Mm]) handle_mouse "$key"; return ;;
     esac
 
-    case "$key" in
-        k|K)               navigate -1 ;;
-        j|J)               navigate 1 ;;
-        l|L|h|H|' ')       [[ -n "$active_item" ]] && modify_value "$active_item" ;;
-        g)                 navigate_end 0 ;;
-        G)                 navigate_end 1 ;;
-        $'\t')             switch_tab 1 ;;
-        r|R)               reset_defaults ;;
-        ''|$'\n')          deploy_changes ;;
+    case $key in
+        k|K) navigate -1 ;;
+        j|J) navigate 1 ;;
+        l|L|h|H|' ') [[ -n "$active_item" ]] && modify_value "$active_item" ;;
+        $'\x15') navigate_page -1 ;; # Ctrl+U
+        $'\x04') navigate_page 1 ;;  # Ctrl+D
+        g) navigate_end 0 ;;
+        G) navigate_end 1 ;;
+        $'\t') switch_tab 1 ;;
+        r) reset_current_item ;;
+        R) reset_defaults ;;
+        ''|$'\n') deploy_changes ;;
         $'\x7f'|$'\x08'|$'\e\n') [[ -n "$active_item" ]] && modify_value "$active_item" ;;
-        q|Q|$'\x03')       exit 0 ;;
+        q|Q|$'\x03') exit 0 ;;
     esac
 }
 
-run_autonomous_all() {
-    local -i i
-    local item
-    
-    printf '%s[*] Autonomously enabling all available site themes...%s\n' "$C_CYAN" "$C_RESET"
-    
-    for (( i=0; i<TAB_COUNT; i++ )); do
-        local -n _items="TAB_ITEMS_${i}"
-        for item in "${_items[@]}"; do
-            VALUE_CACHE["${i}::${item}"]="true"
-        done
-    done
-    
-    deploy_changes "--headless"
-    printf '%s[*] Processing complete.%s\n' "$C_GREEN" "$C_RESET"
-    exit 0
-}
+# =============================================================================
+# ▼ ENTRYPOINT ▼
+# =============================================================================
 
 main() {
-    if (( BASH_VERSINFO[0] < 5 )); then
-        log_err "Bash 5.0+ required"
-        exit 1
-    fi
+    if (( BASH_VERSINFO[0] < 5 )); then log_err "Bash 5.0+ required"; exit 1; fi
 
     local do_sync=0
     local do_all=0
@@ -986,6 +962,11 @@ main() {
         shift
     done
 
+    local dep
+    for dep in curl mktemp tar find grep awk cp mv rm stty chmod; do
+        if ! command -v "$dep" >/dev/null 2>&1; then log_err "Missing dependency: $dep"; exit 1; fi
+    done
+
     if (( do_sync )); then
         sync_cache
     fi
@@ -998,19 +979,28 @@ main() {
         run_autonomous_all
     fi
 
-    if [[ ! -t 0 ]]; then log_err "TTY required for interactive mode."; exit 1; fi
+    if [[ ! -t 0 || ! -t 1 ]]; then log_err "Interactive TTY stdin/stdout required"; exit 1; fi
 
-    ORIGINAL_STTY=$(stty -g 2>/dev/null) || ORIGINAL_STTY=""
-    stty -icanon -echo min 1 time 0 2>/dev/null
+    ORIGINAL_STTY=$(stty -g < /dev/tty 2>/dev/null) || ORIGINAL_STTY=""
+    if [[ -z $ORIGINAL_STTY ]]; then log_err "Failed to read terminal settings. A controlling TTY is required."; exit 1; fi
+    if ! stty -icanon -echo -ixon min 1 time 0 < /dev/tty 2>/dev/null; then log_err "Failed to configure terminal raw input."; exit 1; fi
 
-    printf '%s%s%s%s' "$MOUSE_ON" "$CURSOR_HIDE" "$CLR_SCREEN" "$CURSOR_HOME"
-    trap 'draw_ui' WINCH
+    TUI_STARTED=1
+    printf '%s%s%s%s%s' "$ALT_SCREEN_ON" "$MOUSE_ON" "$CURSOR_HIDE" "$CLR_SCREEN" "$CURSOR_HOME"
+    
+    set +Eeu
+    trap 'RESIZE_PENDING=1' WINCH
 
     local key
     while true; do
-        draw_ui
-        if ! IFS= read -rsn1 key; then continue; fi
-        handle_input_router "$key"
+        draw_ui || true
+        
+        if IFS= read -rsn1 -t "$READ_LOOP_TIMEOUT" key < /dev/tty; then
+            if (( RESIZE_PENDING )); then RESIZE_PENDING=0; fi
+            handle_input_router "$key"
+        else
+            if (( RESIZE_PENDING )); then RESIZE_PENDING=0; fi
+        fi
     done
 }
 
