@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# 140_kvm_vm_deploy.sh
+# 040_kvm_vm_deploy.sh
 # Purpose: Dynamic KVM XML architect. Builds a perfectly optimized hardware 
 #          topology depending on OS type, TPM requirements, and GPU logic.
 # ==============================================================================
@@ -16,6 +16,11 @@ log_info() { echo -e "${CYAN}[INFO]${NC} $1"; }
 log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
+
+# --- Sudo Validation & Keep-Alive ---
+log_info "Validating administrative privileges..."
+sudo -v || log_error "Sudo authentication failed."
+while true; do sudo -n true; sleep 60; kill -0 "$$" || exit; done 2>/dev/null &
 
 echo -e "${CYAN}====================================================${NC}"
 echo -e "${CYAN}          Intelligent VM Provisioning Engine        ${NC}"
@@ -69,7 +74,6 @@ CDROM_XML="
     </disk>"
 
 if [ "$OS_CHOICE" == "2" ]; then
-    # Windows-specific: Hyper-V, Localtime Clock, TPM 2.0, and 2nd CD-ROM for VirtIO drivers
     FEATURES_XML="
     <acpi/><apic/><vmport state='off'/>
     <hyperv>
@@ -132,7 +136,6 @@ case $GPU_CHOICE in
         read -rp "Enter the PCI Bus ID of the GPU (e.g., '01'): " PCI_BUS
         read -rp "Enter the PCI Slot ID of the GPU (e.g., '00'): " PCI_SLOT
         
-        # CRITICAL: Model type='none' prevents phantom QXL displays breaking Looking Glass
         GRAPHICS_XML="
         <video><model type='none'/></video>
         <hostdev mode='subsystem' type='pci' managed='yes'>
@@ -151,8 +154,9 @@ esac
 # 4. Provision Disk Image
 DISK_PATH="${KVM_TARGET_DIR}/${VM_NAME}.qcow2"
 log_info "Provisioning virtual disk at: $DISK_PATH"
-qemu-img create -f qcow2 "$DISK_PATH" "${DISK_GIB}G" > /dev/null
-sudo chown qemu:kvm "$DISK_PATH" || true
+sudo qemu-img create -f qcow2 "$DISK_PATH" "${DISK_GIB}G" > /dev/null
+# CRITICAL FIX: Ensure qemu daemon user can actually read/write the newly created disk
+sudo chown qemu:qemu "$DISK_PATH" || true
 
 # 5. Assemble Master XML
 XML_PAYLOAD="/tmp/${VM_NAME}_deploy.xml"

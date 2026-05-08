@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# 130_kvm_vfio_isolation.sh
-# Purpose: Dynamic GPU Passthrough Isolation. Configures Limine/systemd-boot,
+# 030_kvm_vfio_isolation.sh
+# Purpose: Dynamic GPU Passthrough Isolation. Configures bootloaders,
 #          mkinitcpio drop-ins, and softdeps to steal the GPU before the host OS.
 # ==============================================================================
 set -euo pipefail
@@ -16,6 +16,11 @@ log_info() { echo -e "${CYAN}[INFO]${NC} $1"; }
 log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
+
+# --- Sudo Validation & Keep-Alive ---
+log_info "Validating administrative privileges..."
+sudo -v || log_error "Sudo authentication failed."
+while true; do sudo -n true; sleep 60; kill -0 "$$" || exit; done 2>/dev/null &
 
 echo -e "${CYAN}====================================================${NC}"
 echo -e "${CYAN}          GPU VFIO Isolation Configuration          ${NC}"
@@ -52,7 +57,8 @@ if [[ -z "$GPU_ID" || -z "$AUDIO_ID" ]]; then
     log_error "Both GPU and Audio IDs are required for correct IOMMU grouping. Aborting."
 fi
 
-VFIO_PARAMS="${IOMMU_PARAM} vfio-pci.ids=${GPU_ID},${AUDIO_ID} module_blacklist=nvidia,nvidia_modeset,nvidia_uvm,nvidia_drm,nouveau"
+# Updated to use modern modprobe.blacklist syntax
+VFIO_PARAMS="${IOMMU_PARAM} vfio-pci.ids=${GPU_ID},${AUDIO_ID} modprobe.blacklist=nvidia,nvidia_modeset,nvidia_uvm,nvidia_drm,nouveau"
 
 # Modprobe Safety Net
 log_info "Configuring /etc/modprobe.d/vfio.conf..."
@@ -82,14 +88,13 @@ log_success "Drop-in /etc/mkinitcpio.conf.d/15-vfio.conf created."
 log_info "Injecting kernel parameters into bootloader..."
 
 if [[ -f "/etc/kernel/cmdline" ]]; then
-    log_info "Detected Limine bootloader (/etc/kernel/cmdline)."
+    log_info "Detected kernel cmdline base file (/etc/kernel/cmdline)."
     CURRENT_CMDLINE=$(< /etc/kernel/cmdline)
     
     if [[ "$CURRENT_CMDLINE" == *"${GPU_ID}"* ]]; then
-        log_success "VFIO parameters already exist in Limine cmdline. Skipping injection to prevent duplication."
+        log_success "VFIO parameters already exist in cmdline. Skipping."
     else
         sudo cp /etc/kernel/cmdline /etc/kernel/cmdline.bak
-        # Safely append params
         echo "${CURRENT_CMDLINE} ${VFIO_PARAMS}" | sudo awk '{$1=$1};1' | sudo tee /etc/kernel/cmdline > /dev/null
         log_success "Updated /etc/kernel/cmdline."
         
@@ -101,19 +106,32 @@ if [[ -f "/etc/kernel/cmdline" ]]; then
 
 elif [[ -d "/boot/loader/entries" ]]; then
     log_info "Detected systemd-boot."
+    shopt -s nullglob # Prevent errors if dir is empty
     for conf in /boot/loader/entries/*.conf; do
         if grep -q "^options" "$conf"; then
             if grep -q "${GPU_ID}" "$conf"; then
                 log_success "VFIO parameters already exist in $conf."
             else
-                sudo sed -i "s/^options .*/& ${VFIO_PARAMS}/" "$conf"
+                sudo sed -i "s|^options .*|& ${VFIO_PARAMS}|" "$conf"
                 log_success "Updated $conf."
             fi
         fi
     done
+    shopt -u nullglob
     sudo bootctl update || true
+
+elif [[ -f "/etc/default/grub" ]]; then
+    log_info "Detected GRUB bootloader."
+    if grep -q "${GPU_ID}" /etc/default/grub; then
+        log_success "VFIO parameters already exist in /etc/default/grub."
+    else
+        sudo cp /etc/default/grub /etc/default/grub.bak
+        sudo sed -i "s|^GRUB_CMDLINE_LINUX_DEFAULT=\"|GRUB_CMDLINE_LINUX_DEFAULT=\"${VFIO_PARAMS} |" /etc/default/grub
+        sudo grub-mkconfig -o /boot/grub/grub.cfg
+        log_success "Updated GRUB configuration."
+    fi
 else
-    log_error "No supported bootloader config found."
+    log_error "No supported bootloader config found. Please inject parameters manually."
 fi
 
 log_info "Regenerating initramfs to bake in VFIO modules..."

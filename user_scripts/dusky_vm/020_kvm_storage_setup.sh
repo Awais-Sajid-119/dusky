@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# 120_kvm_storage_setup.sh
+# 020_kvm_storage_setup.sh
 # Purpose: Interactive VM storage provisioner. Configures exact ACL permissions 
 #          to prevent 'qemu' access denial on custom/ephemeral mounts (ZRAM).
 # ==============================================================================
@@ -11,6 +11,10 @@ GREEN='\033[1;32m'
 YELLOW='\033[1;33m'
 RED='\033[1;31m'
 NC='\033[0m'
+
+# --- Sudo Validation & Keep-Alive ---
+sudo -v || { echo -e "${RED}[ERROR] Sudo authentication failed.${NC}"; exit 1; }
+while true; do sudo -n true; sleep 60; kill -0 "$$" || exit; done 2>/dev/null &
 
 DEFAULT_PATH="/var/lib/libvirt/images"
 
