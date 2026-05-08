@@ -1,6 +1,5 @@
 @-moz-document domain("chatgpt.com") {
-
-    /* Main Background */
+        /* Main Background */
     .flex {
         background-color: var(--surface) !important;
     }
@@ -38,6 +37,11 @@
     /* Accent Element (Buttons/Links) */
     .min-h-\[46px\] {
         background-color: var(--primary) !important;
+    }
+
+    /* Main Background */
+    #thread-bottom-container {
+        background-color: var(--surface) !important;
     }
 
 }
