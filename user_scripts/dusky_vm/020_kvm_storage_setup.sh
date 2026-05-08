@@ -35,11 +35,11 @@ TARGET_DIR=""
 case $STORAGE_CHOICE in
     1) TARGET_DIR="$DEFAULT_PATH" ;;
     2)
-        read -rp "Enter your ephemeral drive path (Default: /mnt/zram1): " EPHEMERAL_PATH
+        read -ep "Enter your ephemeral drive path (Default: /mnt/zram1): " EPHEMERAL_PATH
         TARGET_DIR=${EPHEMERAL_PATH:-/mnt/zram1}
         ;;
     3)
-        read -rp "Enter the absolute path to your custom directory: " TARGET_DIR
+        read -ep "Enter the absolute path to your custom directory: " TARGET_DIR
         if [[ "$TARGET_DIR" != /* ]]; then
             echo -e "${RED}[ERROR] Path must be absolute (start with '/'). Aborting.${NC}"
             exit 1
