@@ -3,8 +3,8 @@
 /* ─────────────────────────────────────────────────────────────────────────────
    TRANSPARENCY CONTROLS (GLASSY MODE)
    ───────────────────────────────────────────────────────────────────────────── */
-@define-color glass_module      alpha(@surface_container, 0.4);
-@define-color glass_module_low  alpha(@surface_container_low, 0.4);
+@define-color glass_module      alpha(@surface_container, 0.55);
+@define-color glass_module_low  alpha(@surface_container_low, 0.55);
 @define-color glass_primary     alpha(@primary, 0.85);
 
 /* ─────────────────────────────────────────────────────────────────────────────

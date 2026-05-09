@@ -11,9 +11,9 @@
 @define-color glass_bar         transparent;
 @define-color glass_module      alpha(@surface_container, 0.6);
 @define-color glass_module_dark alpha(@surface_container, 0.6);
-@define-color glass_hover       alpha(@surface_container_high, 0.25);
-@define-color glass_tooltip     alpha(@surface, 0.08);
-@define-color glass_mpris       alpha(@secondary_container, 0.5);
+@define-color glass_hover       alpha(@surface_container_high, 0.55);
+@define-color glass_tooltip     alpha(@surface, 0.55);
+@define-color glass_mpris       alpha(@secondary_container, 0.55);
 
 /* ─────────────────────────────────────────────────────────────────────────────
    MASTER OPAQUE SWITCH

@@ -4,9 +4,9 @@
    TRANSPARENCY TOGGLE
    ───────────────────────────────────────────────────────────────────────────── */
 
-@define-color glass_surface         alpha(@surface, 0.2);
+@define-color glass_surface         alpha(@surface, 0.55);
 @define-color glass_surface_dark    alpha(@surface, 1.0);
-@define-color glass_tooltip         alpha(@surface, 0.07);
+@define-color glass_tooltip         alpha(@surface, 0.55);
 
 /* WAYBAR_OPAQUE_SWITCH_START */
 

@@ -7,11 +7,11 @@
 /* ─────────────────────────────────────────────────────────────────────────────
    TRANSLUCENCY CONTROLS (GLASSY MODE)
    ───────────────────────────────────────────────────────────────────────────── */
-@define-color glass_bar         alpha(@surface, 0.5);
-@define-color glass_module      alpha(@surface_container, 0.3);
-@define-color glass_module_dark alpha(@surface_container, 0.4);
-@define-color glass_hover       alpha(@surface_container_highest, 0.5);
-@define-color glass_tooltip     alpha(@surface, 0.08);
+@define-color glass_bar         alpha(@surface, 0.55);
+@define-color glass_module      alpha(@surface_container, 0.55);
+@define-color glass_module_dark alpha(@surface_container, 0.55);
+@define-color glass_hover       alpha(@surface_container_highest, 0.6);
+@define-color glass_tooltip     alpha(@surface, 0.55);
 
 /* ─────────────────────────────────────────────────────────────────────────────
    TRANSPARENCY TOGGLE

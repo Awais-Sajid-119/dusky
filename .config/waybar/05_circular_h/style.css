@@ -32,13 +32,13 @@
    Tweak the decimals (0.0 to 1.0) here to adjust granular glassiness.
    ───────────────────────────────────────────────────────────────────────────── */
 @define-color glass_bar               transparent;
-@define-color glass_module            alpha(@surface_container, 0.4);
+@define-color glass_module            alpha(@surface_container, 0.55);
 @define-color glass_tooltip           alpha(@surface_container_high, 0.85);
 
-@define-color glass_primary_mild      alpha(@primary_container, 0.4);
-@define-color glass_secondary_mild    alpha(@secondary_container, 0.4);
-@define-color glass_tertiary_mild     alpha(@tertiary_container, 0.4);
-@define-color glass_error_mild        alpha(@error_container, 0.4);
+@define-color glass_primary_mild      alpha(@primary_container, 0.55);
+@define-color glass_secondary_mild    alpha(@secondary_container, 0.55);
+@define-color glass_tertiary_mild     alpha(@tertiary_container, 0.55);
+@define-color glass_error_mild        alpha(@error_container, 0.55);
 
 /* ─────────────────────────────────────────────────────────────────────────────
    TRANSPARENCY TOGGLE

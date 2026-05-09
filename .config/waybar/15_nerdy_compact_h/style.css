@@ -10,11 +10,11 @@
 /* ─────────────────────────────────────────────────────────────────────────────
    TRANSPARENCY DEFINITIONS 
    ───────────────────────────────────────────────────────────────────────────── */
-@define-color glass_bar           alpha(@surface_container, 0.4);
-@define-color glass_workspaces    alpha(@surface_container_low, 0.4);
+@define-color glass_bar           alpha(@surface_container, 0.55);
+@define-color glass_workspaces    alpha(@surface_container_low, 0.55);
 @define-color glass_hover         alpha(@surface_container_highest, 0.6);
 @define-color glass_tooltip       alpha(@surface_container_high, 0.8);
-@define-color glass_border        alpha(@outline_variant, 0.5);
+@define-color glass_border        alpha(@outline_variant, 0.55);
 
 /* ─────────────────────────────────────────────────────────────────────────────
    TRANSPARENCY TOGGLE

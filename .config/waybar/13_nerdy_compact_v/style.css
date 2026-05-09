@@ -9,12 +9,12 @@
    TRANSLUCENCY CONTROLS (GLASSY MODE)
    Tweak the decimals (0.0 to 1.0) here to adjust granular glassiness.
    ───────────────────────────────────────────────────────────────────────────── */
-@define-color glass_bar         alpha(@background, 0.4);
-@define-color glass_group       alpha(@surface_container_highest, 0.0);
-@define-color glass_module      alpha(@surface_container_highest, 0.0);
-@define-color glass_tooltip     alpha(@surface_container, 0.07);
-@define-color glass_active_ws   alpha(@primary, 0.15);
-@define-color glass_urgent_ws   alpha(@error, 0.15);
+@define-color glass_bar         alpha(@background, 0.55);
+@define-color glass_group       alpha(@surface_container_highest, 0.55);
+@define-color glass_module      alpha(@surface_container_highest, 0.55);
+@define-color glass_tooltip     alpha(@surface_container, 0.55);
+@define-color glass_active_ws   alpha(@primary, 0.55);
+@define-color glass_urgent_ws   alpha(@error, 0.55);
 @define-color glass_border      alpha(@outline_variant, 1.0);
 
 /* ─────────────────────────────────────────────────────────────────────────────

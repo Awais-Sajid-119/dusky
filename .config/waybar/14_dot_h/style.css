@@ -4,13 +4,13 @@
    TRANSLUCENCY BASE VARIABLES
    ───────────────────────────────────────────────────────────────────────────── */
 @define-color glass_bar         transparent;
-@define-color glass_group       alpha(@surface_container, 0.2);
-@define-color glass_module      alpha(@surface_container, 0.0);
+@define-color glass_group       alpha(@surface_container, 0.55);
+@define-color glass_module      alpha(@surface_container, 0.55);
 @define-color glass_hover       alpha(@surface_container_high, 0.9);
 @define-color glass_hover_bright alpha(@surface_container_highest, 0.9);
-@define-color glass_tooltip     alpha(@surface, 0.07);
-@define-color glass_battery_charging alpha(@tertiary_container, 0.25);
-@define-color glass_battery_critical alpha(@error, 0.1);
+@define-color glass_tooltip     alpha(@surface, 0.55);
+@define-color glass_battery_charging alpha(@tertiary_container, 0.55);
+@define-color glass_battery_critical alpha(@error, 0.55);
 
 /* ─────────────────────────────────────────────────────────────────────────────
    TRANSPARENCY TOGGLE

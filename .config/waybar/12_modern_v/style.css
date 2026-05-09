@@ -8,7 +8,7 @@
 @define-color glass_module_low        alpha(@surface_container_low, 0.6);
 @define-color glass_module_high       alpha(@surface_container_high, 0.6);
 @define-color glass_primary_container alpha(@primary_container, 0.6);
-@define-color glass_tooltip           alpha(@surface_container_highest, 0.15);
+@define-color glass_tooltip           alpha(@surface_container_highest, 0.55);
 
 /* ─────────────────────────────────────────────────────────────────────────────
    TRANSPARENCY TOGGLE

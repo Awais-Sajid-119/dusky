@@ -9,21 +9,21 @@
    ───────────────────────────────────────────────────────────────────────────── */
 @define-color glass_bar             alpha(@surface, 0.6);
 @define-color glass_module          transparent;
-@define-color glass_tooltip         alpha(@surface_container_high, 0.25);
-@define-color glass_border          alpha(@primary, 0.2);
-@define-color glass_border_alt      alpha(@outline_variant, 0.3);
+@define-color glass_tooltip         alpha(@surface_container_high, 0.55);
+@define-color glass_border          alpha(@primary, 0.55);
+@define-color glass_border_alt      alpha(@outline_variant, 0.55);
 
-@define-color glass_ws              alpha(@surface_container_highest, 0.4);
-@define-color glass_ws_empty        alpha(@surface_container_high, 0.2);
+@define-color glass_ws              alpha(@surface_container_highest, 0.55);
+@define-color glass_ws_empty        alpha(@surface_container_high, 0.55);
 @define-color glass_ws_visible      alpha(@surface_container_highest, 0.6);
 @define-color glass_ws_active       alpha(@primary_container, 0.6);
 @define-color glass_ws_urgent       alpha(@error_container, 0.6);
 
 @define-color glass_inhibit         alpha(@primary_container, 0.6);
-@define-color glass_warn            alpha(@tertiary_container, 0.2);
-@define-color glass_crit            alpha(@error_container, 0.3);
-@define-color glass_charge          alpha(@tertiary_container, 0.25);
-@define-color glass_battery_warn    alpha(@primary_container, 0.3);
+@define-color glass_warn            alpha(@tertiary_container, 0.55);
+@define-color glass_crit            alpha(@error_container, 0.55);
+@define-color glass_charge          alpha(@tertiary_container, 0.55);
+@define-color glass_battery_warn    alpha(@primary_container, 0.55);
 
 /* ─────────────────────────────────────────────────────────────────────────────
    TRANSPARENCY TOGGLE
