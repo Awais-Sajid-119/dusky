@@ -4,6 +4,7 @@ import re
 import json
 import subprocess
 import colorsys
+import shlex
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -25,7 +26,7 @@ from textual.timer import Timer
 from rich.text import Text
 
 # =============================================================================
-# FOR DIOGNOSING ANY ISSUES, VERY IMPORTANT Commands!!
+# FOR DIAGNOSING ANY ISSUES, VERY IMPORTANT Commands!!
 # =============================================================================
 # python -m textual console
 # python -m textual run --dev python_tui.py
@@ -209,7 +210,6 @@ class ConfigItem:
         if self.value is None:
             self.value = self.default
 
-# PRISTINE ORIGINAL ARRAY RESTORED FOR PRODUCTION
 TABS = ["General", "Network", "Display", "System", "Audio", "Storage", "Security"]
 
 SCHEMA: dict[int, list[ConfigItem]] = {
@@ -571,9 +571,11 @@ class FileLink(Label):
                     stderr=subprocess.DEVNULL
                 )
             elif event.button == 3:
-                editor = os.environ.get("VISUAL", os.environ.get("EDITOR", "nano"))
+                editor_env = os.environ.get("VISUAL", os.environ.get("EDITOR", "nano"))
+                # Properly parse the environment string to prevent execution errors when flags are present
+                editor_cmd = shlex.split(editor_env)
                 with self.app.suspend():
-                    subprocess.run([editor, str(expanded_path)])
+                    subprocess.run([*editor_cmd, str(expanded_path)])
         except (FileNotFoundError, OSError):
             if hasattr(self.app, "notify_status"):
                 getattr(self.app, "notify_status")("Error resolving path or launching editor.")
@@ -587,7 +589,6 @@ class AppFooter(Vertical):
             yield Shortcut("R", "Reset Page", "reset_all")
             yield Shortcut("ctrl+f", "Search", "search")
             yield Shortcut("q", "Quit", "quit")
-#            yield Label(f"   [{THEME['error']}]●[/] Modified", id="footer-legend")
 
         with Horizontal(id="footer-bottom-row"):
             yield Label("", id="status-bar")
@@ -628,7 +629,6 @@ class DuskyApp(App):
         padding: 0 1;
     }
     
-    /* THE FIX: Native decoupling of Tab bar to guarantee independent scrolling */
     #tab-bar {
         width: 100%;
         height: 1;
@@ -687,7 +687,6 @@ class DuskyApp(App):
     #file-link { padding: 0 1; background: transparent; }
     #file-link:hover { text-style: bold; color: $text; background: $primary 25%; }
     
-    /* MODAL STYLING WITH ROUNDED CORNERS - ZERO BLEED TRICK */
     TextInputOverlay, PickerScreen, SearchScreen { align: center middle; background: rgba(0, 0, 0, 0.75); }
     
     #modal-dialog { width: 50; height: auto; background: transparent; border: round $primary; padding: 0; }
@@ -731,6 +730,10 @@ class DuskyApp(App):
 
     last_theme_mtime: float = 0.0
     _status_timer: Timer | None = None
+    
+    _cached_tabs_container: Horizontal | None = None
+    _cached_tab_left: Label | None = None
+    _cached_tab_right: Label | None = None
 
     def compose(self) -> ComposeResult:
         with Vertical(id="main-box"):
@@ -804,6 +807,11 @@ class DuskyApp(App):
         self.query_one("#main-box").border_title = " Generic System Config Editor v7.0.4 "
         self.apply_theme_to_engine()
         
+        # Cache specific structural nodes strictly for scroll polling
+        self._cached_tabs_container = self.query_one("#tabs-container", Horizontal)
+        self._cached_tab_left = self.query_one("#tab-left", Label)
+        self._cached_tab_right = self.query_one("#tab-right", Label)
+        
         for i in range(len(TABS)):
             ol = self.query_one(f"#list-{i}", ConfigOptionList)
             items = SCHEMA.get(i, [])
@@ -832,10 +840,13 @@ class DuskyApp(App):
         return None
 
     def check_tab_overflow(self) -> None:
+        if not self._cached_tabs_container or not self._cached_tab_left or not self._cached_tab_right:
+            return
+            
         try:
-            container = self.query_one("#tabs-container", Horizontal)
-            left = self.query_one("#tab-left")
-            right = self.query_one("#tab-right")
+            container = self._cached_tabs_container
+            left = self._cached_tab_left
+            right = self._cached_tab_right
             
             has_overflow = container.max_scroll_x > 0
             
@@ -852,16 +863,16 @@ class DuskyApp(App):
     def scroll_tabs_left(self, event: events.Click) -> None:
         event.stop()
         try:
-            container = self.query_one("#tabs-container", Horizontal)
-            container.scroll_relative(x=-40, animate=True)
+            if self._cached_tabs_container:
+                self._cached_tabs_container.scroll_relative(x=-40, animate=True)
         except Exception: pass
 
     @on(events.Click, "#tab-right")
     def scroll_tabs_right(self, event: events.Click) -> None:
         event.stop()
         try:
-            container = self.query_one("#tabs-container", Horizontal)
-            container.scroll_relative(x=40, animate=True)
+            if self._cached_tabs_container:
+                self._cached_tabs_container.scroll_relative(x=40, animate=True)
         except Exception: pass
 
     def watch_theme_file(self) -> None:
@@ -1135,20 +1146,14 @@ class DuskyApp(App):
         is_modified = str(item.value) != str(item.default)
         
         if is_modified and item.type_ != "action":
-            val_str = str(item.value)
-            if item.type_ == "bool": 
-                threshold = 47
-            elif item.type_ in ("string", "picker"): 
-                threshold = 44 + len(val_str)
-            elif item.type_ == "color":
-                r, g, b = color_to_rgb(val_str)
-                c_name = get_color_name(r, g, b)
-                threshold = 40 + len(c_name) + 3
-            else: 
-                threshold = 40 + len(val_str)
+            # Using Rich's cell_len for exact terminal column arithmetic
+            rendered_text = self._build_option(item, True)
+            total_width = rendered_text.cell_len
+            reset_width = 10 # Width of "   ↩ Reset"
+            threshold = total_width - reset_width
             
             click_x = getattr(ol, "_last_click_x", 0)
-            if threshold <= click_x <= threshold + 12:
+            if threshold <= click_x <= total_width + 2:
                 item.value = item.default
                 ol.replace_option_prompt_at_index(index, self._build_option(item, True))
                 self.notify_status(f"Reset {item.label}")
@@ -1171,12 +1176,20 @@ class DuskyApp(App):
         def check_reply(new_val: str | None) -> None:
             if new_val is not None:
                 if item.type_ == "int":
-                    try: new_val = int(new_val)
+                    try: 
+                        parsed_val = int(new_val)
+                        if item.min_val is not None: parsed_val = max(int(item.min_val), parsed_val)
+                        if item.max_val is not None: parsed_val = min(int(item.max_val), parsed_val)
+                        new_val = parsed_val
                     except ValueError: 
                         self.notify_status("Error: Value must be an integer.")
                         return
                 elif item.type_ == "float":
-                    try: new_val = float(new_val)
+                    try: 
+                        parsed_val = float(new_val)
+                        if item.min_val is not None: parsed_val = max(float(item.min_val), parsed_val)
+                        if item.max_val is not None: parsed_val = min(float(item.max_val), parsed_val)
+                        new_val = parsed_val
                     except ValueError: 
                         self.notify_status("Error: Value must be a float.")
                         return
