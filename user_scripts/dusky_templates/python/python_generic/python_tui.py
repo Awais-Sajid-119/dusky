@@ -14,7 +14,7 @@ from textual.binding import Binding
 from textual.containers import Vertical, Horizontal
 from textual.widgets import (
     Label, Input, ListView, ListItem, 
-    Tabs, TabbedContent, TabPane, OptionList
+    Tabs, Tab, ContentSwitcher, OptionList
 )
 from textual.widgets.option_list import Option
 from textual.screen import ModalScreen
@@ -91,6 +91,7 @@ def color_to_rgb(val: str) -> tuple[int, int, int]:
         
     m_oklch = re.match(r"oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)", val)
     if m_oklch:
+        # Approximate OKLCH mapping strictly for UI visualization purposes
         l_val, c_val, h_val = float(m_oklch.group(1)), float(m_oklch.group(2)), float(m_oklch.group(3))
         r, g, b = colorsys.hls_to_rgb(h_val/360.0, l_val, min(c_val*2.5, 1.0))
         return (max(0, min(255, int(r*255))), max(0, min(255, int(g*255))), max(0, min(255, int(b*255))))
@@ -208,7 +209,9 @@ class ConfigItem:
         if self.value is None:
             self.value = self.default
 
+# PRISTINE ORIGINAL ARRAY RESTORED FOR PRODUCTION
 TABS = ["General", "Network", "Display", "System", "Audio", "Storage", "Security"]
+
 SCHEMA: dict[int, list[ConfigItem]] = {
     0: [
         ConfigItem(label="Enable Daemon", key="service_enabled", type_="bool", default=True),
@@ -274,7 +277,6 @@ class TextInputOverlay(ModalScreen[str | None]):
     def action_cancel(self) -> None:
         self.dismiss(None)
 
-
 class PickerScreen(ModalScreen[str | None]):
     BINDINGS = [
         Binding("up,k", "cursor_up", "Up"),
@@ -320,7 +322,6 @@ class PickerScreen(ModalScreen[str | None]):
 
     def action_cancel(self) -> None:
         self.dismiss(None)
-
 
 class SearchScreen(ModalScreen[tuple[int, int] | None]):
     """Native Textual FZF-style Fuzzy Find Modal configured for rapid parameter jumps via Ctrl+F."""
@@ -624,15 +625,21 @@ class DuskyApp(App):
         border-subtitle-align: right;
         background: transparent;
         padding: 0 1;
-        layers: base overlay;
     }
     
-    #tab-arrows-container {
+    /* THE FIX: Native decoupling of Tab bar to guarantee independent scrolling */
+    #tab-bar {
         width: 100%;
         height: 1;
-        layer: overlay;
+        margin-bottom: 1;
         background: transparent;
-        margin-top: 1; /* Pushes it down to overlay perfectly on the Tabs widget */
+    }
+    
+    #tabs-container {
+        width: 1fr;
+        height: 1;
+        overflow-x: auto;
+        scrollbar-size: 0 0;
     }
     
     .tab-arrow {
@@ -644,19 +651,15 @@ class DuskyApp(App):
         text-style: bold;
         display: none;
     }
-    #tab-left { dock: left; }
-    #tab-right { dock: right; }
     
     .tab-arrow:hover {
         color: $text;
         background: $primary 25%;
     }
     
-    TabbedContent { height: 1fr; margin-bottom: 1; background: transparent; }
     ContentSwitcher { height: 1fr; background: transparent; }
     
-    /* Dynamically padded to make room for docked overflow arrows */
-    Tabs { height: 1; margin-bottom: 1; background: transparent; padding: 0 4; }
+    Tabs { width: auto; min-width: 100%; height: 1; background: transparent; }
     Tabs > .underline { display: none; }
     Tab { height: 1; padding: 0 1; color: $primary 60%; background: transparent; border: none; }
     Tab:hover { color: $text; background: $primary 25%; }
@@ -730,23 +733,27 @@ class DuskyApp(App):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="main-box"):
-            with Horizontal(id="tab-arrows-container"):
+            with Horizontal(id="tab-bar"):
                 yield Label(" ◀ ", id="tab-left", classes="tab-arrow")
+                with Horizontal(id="tabs-container"):
+                    yield Tabs(
+                        *[Tab(name, id=f"tab-id-{i}") for i, name in enumerate(TABS)], 
+                        id="tabs"
+                    )
                 yield Label(" ▶ ", id="tab-right", classes="tab-arrow")
-            with TabbedContent(id="tabs"):
+                
+            with ContentSwitcher(initial="tab-0", id="content-switcher"):
                 for i, name in enumerate(TABS):
-                    with TabPane(name, id=f"tab-{i}"):
+                    with Vertical(id=f"tab-{i}"):
                         with Horizontal(classes="list-wrapper"):
                             yield ConfigOptionList(id=f"list-{i}")
                             with Vertical(classes="indicator-column"):
                                 yield ScrollIndicator("", id=f"indicator-{i}")
-            yield AppFooter(id="footer")
+        yield AppFooter(id="footer")
 
     def _build_option(self, item: ConfigItem, is_highlighted: bool = False) -> Text:
-        """Constructs Rich text cleanly, mitigating arbitrary string injection bugs."""
         txt = Text()
         
-        # Standardized purely geometric cursor to prevent bold font-fallback shifting
         CURSOR_CHAR = "▶"
         cursor = f"{CURSOR_CHAR} " if is_highlighted else "  "
         txt.append(cursor, style=f"{THEME['accent']} bold" if is_highlighted else "")
@@ -758,7 +765,6 @@ class DuskyApp(App):
         def_str = str(item.default)
         
         if item.type_ == "action":
-            # For actions, hide the dot entirely and use spacing to align properly
             txt.append("   ")
             txt.append("⚡ Execute Action", style=f"bold {THEME['warning']}")
         else:
@@ -816,38 +822,45 @@ class DuskyApp(App):
     @property
     def current_option_list(self) -> ConfigOptionList | None:
         try:
-            tc = self.query_one(TabbedContent)
-            if tc.active:
-                idx = tc.active.split("-")[1]
+            switcher = self.query_one(ContentSwitcher)
+            if switcher.current:
+                idx = switcher.current.split("-")[1]
                 return self.query_one(f"#list-{idx}", ConfigOptionList)
         except Exception:
             pass
         return None
 
     def check_tab_overflow(self) -> None:
-        """Dynamically evaluates responsive threshold bounds mapping for the tab arrows."""
         try:
-            tabs = self.query_one(Tabs)
+            container = self.query_one("#tabs-container", Horizontal)
             left = self.query_one("#tab-left")
             right = self.query_one("#tab-right")
             
-            left.display = tabs.scroll_x > 0
-            right.display = tabs.scroll_x < tabs.max_scroll_x
+            has_overflow = container.max_scroll_x > 0
+            
+            if has_overflow:
+                left.display = container.scroll_x > 0.5
+                right.display = container.scroll_x < (container.max_scroll_x - 0.5)
+            else:
+                left.display = False
+                right.display = False
         except Exception:
             pass
 
     @on(events.Click, "#tab-left")
-    def scroll_tabs_left(self) -> None:
+    def scroll_tabs_left(self, event: events.Click) -> None:
+        event.stop()
         try:
-            tabs = self.query_one(Tabs)
-            tabs.scroll_relative(x=-15, animate=True)
+            container = self.query_one("#tabs-container", Horizontal)
+            container.scroll_relative(x=-40, animate=True)
         except Exception: pass
 
     @on(events.Click, "#tab-right")
-    def scroll_tabs_right(self) -> None:
+    def scroll_tabs_right(self, event: events.Click) -> None:
+        event.stop()
         try:
-            tabs = self.query_one(Tabs)
-            tabs.scroll_relative(x=15, animate=True)
+            container = self.query_one("#tabs-container", Horizontal)
+            container.scroll_relative(x=40, animate=True)
         except Exception: pass
 
     def watch_theme_file(self) -> None:
@@ -885,8 +898,6 @@ class DuskyApp(App):
             pass
 
     def apply_theme_to_engine(self) -> None:
-        # Ping-pong between two names to force Textual's reactive watcher to trigger 
-        # a full CSS re-render without leaking memory.
         self._theme_toggle = not getattr(self, "_theme_toggle", False)
         theme_name = "dusky_matugen_A" if self._theme_toggle else "dusky_matugen_B"
 
@@ -905,12 +916,21 @@ class DuskyApp(App):
         self.register_theme(custom_theme)
         self.theme = theme_name
 
-    @on(TabbedContent.TabActivated)
-    def handle_tab_activated(self, event: TabbedContent.TabActivated) -> None:
-        if ol := self.current_option_list:
-            ol.focus()
-            self._update_pagination(ol)
-            self._update_scroll_indicators()
+    @on(Tabs.TabActivated)
+    def handle_tab_activated(self, event: Tabs.TabActivated) -> None:
+        try:
+            idx = event.tab.id.split("-")[-1]
+            switcher = self.query_one(ContentSwitcher)
+            switcher.current = f"tab-{idx}"
+            
+            event.tab.scroll_visible(animate=True, top=False)
+            
+            if ol := self.current_option_list:
+                ol.focus()
+                self._update_pagination(ol)
+                self._update_scroll_indicators()
+        except Exception:
+            pass
 
     @on(OptionList.OptionHighlighted)
     def handle_option_highlight(self, event: OptionList.OptionHighlighted) -> None:
@@ -949,11 +969,11 @@ class DuskyApp(App):
         main_box.border_subtitle = f" {idx + 1}/{total} " if total else " 0/0 "
 
     def _update_scroll_indicators(self) -> None:
-        tc = self.query_one(TabbedContent)
-        if not tc.active: return
-        
         try:
-            tab_idx = int(tc.active.split("-")[1])
+            switcher = self.query_one(ContentSwitcher)
+            if not switcher.current: return
+            
+            tab_idx = int(switcher.current.split("-")[1])
             ol = self.query_one(f"#list-{tab_idx}", ConfigOptionList)
             indicator = self.query_one(f"#indicator-{tab_idx}", ScrollIndicator)
             
@@ -989,7 +1009,6 @@ class DuskyApp(App):
                     ol.highlighted = item_idx
                     ol.scroll_to_highlight()
                     
-                    # Manually update render cache if we bypassed standard highlight dispatch
                     item = SCHEMA[tab_idx][item_idx]
                     if ol.last_highlighted_idx is not None and ol.last_highlighted_idx != item_idx:
                         old_item = SCHEMA[tab_idx][ol.last_highlighted_idx]
@@ -1011,77 +1030,87 @@ class DuskyApp(App):
         
     def action_switch_tab(self, index: int) -> None:
         if 0 <= index < len(TABS):
-            tc = self.query_one(TabbedContent)
-            tc.active = f"tab-{index}"
+            tabs = self.query_one(Tabs)
+            tabs.active = f"tab-id-{index}"
 
     def action_adjust(self, direction: int) -> None:
         ol = self.current_option_list
         if not ol or ol.highlighted is None: return
         
-        tc = self.query_one(TabbedContent)
-        tab_idx = int(tc.active.split("-")[1])
-        item_idx = ol.highlighted
-        item = SCHEMA.get(tab_idx, [])[item_idx]
-        
-        match item.type_:
-            case "bool":
-                item.value = not item.value
-            case "int" | "float":
-                step = item.step or 1
-                new_val = item.value + (direction * step)
-                if item.min_val is not None: new_val = max(item.min_val, new_val)
-                if item.max_val is not None: new_val = min(item.max_val, new_val)
-                item.value = round(new_val, 6) if item.type_ == "float" else int(new_val)
-            case "cycle":
-                if not item.options: return
-                try: idx = item.options.index(item.value)
-                except ValueError: idx = 0
-                item.value = item.options[(idx + direction) % len(item.options)]
-            case "color":
-                r, g, b = color_to_rgb(str(item.value))
-                current_name = get_color_name(r, g, b)
-                try: idx = CYCLE_COLORS.index(current_name)
-                except ValueError: idx = 0
-                next_name = CYCLE_COLORS[(idx + direction) % len(CYCLE_COLORS)]
-                fmt = parse_color_format(str(item.value))
-                item.value = format_rgb(next_name, fmt, str(item.value))
-            case _: return
+        try:
+            switcher = self.query_one(ContentSwitcher)
+            if not switcher.current: return
+            tab_idx = int(switcher.current.split("-")[1])
+            item_idx = ol.highlighted
+            item = SCHEMA.get(tab_idx, [])[item_idx]
             
-        ol.replace_option_prompt_at_index(item_idx, self._build_option(item, True))
-        self.notify_status(f"Updated {item.label}")
+            match item.type_:
+                case "bool":
+                    item.value = not item.value
+                case "int" | "float":
+                    step = item.step or 1
+                    new_val = item.value + (direction * step)
+                    if item.min_val is not None: new_val = max(item.min_val, new_val)
+                    if item.max_val is not None: new_val = min(item.max_val, new_val)
+                    item.value = round(new_val, 6) if item.type_ == "float" else int(new_val)
+                case "cycle":
+                    if not item.options: return
+                    try: idx = item.options.index(item.value)
+                    except ValueError: idx = 0
+                    item.value = item.options[(idx + direction) % len(item.options)]
+                case "color":
+                    r, g, b = color_to_rgb(str(item.value))
+                    current_name = get_color_name(r, g, b)
+                    try: idx = CYCLE_COLORS.index(current_name)
+                    except ValueError: idx = 0
+                    next_name = CYCLE_COLORS[(idx + direction) % len(CYCLE_COLORS)]
+                    fmt = parse_color_format(str(item.value))
+                    item.value = format_rgb(next_name, fmt, str(item.value))
+                case _: return
+                
+            ol.replace_option_prompt_at_index(item_idx, self._build_option(item, True))
+            self.notify_status(f"Updated {item.label}")
+        except Exception:
+            pass
 
     def action_reset_item(self) -> None:
         ol = self.current_option_list
         if ol and ol.highlighted is not None:
-            tc = self.query_one(TabbedContent)
-            tab_idx = int(tc.active.split("-")[1])
-            item_idx = ol.highlighted
-            item = SCHEMA[tab_idx][item_idx]
-            
-            item.value = item.default
-            ol.replace_option_prompt_at_index(item_idx, self._build_option(item, True))
-            self.notify_status(f"Reset {item.label}")
+            try:
+                switcher = self.query_one(ContentSwitcher)
+                if not switcher.current: return
+                tab_idx = int(switcher.current.split("-")[1])
+                item_idx = ol.highlighted
+                item = SCHEMA[tab_idx][item_idx]
+                
+                item.value = item.default
+                ol.replace_option_prompt_at_index(item_idx, self._build_option(item, True))
+                self.notify_status(f"Reset {item.label}")
+            except Exception:
+                pass
 
     def action_reset_all(self) -> None:
-        tc = self.query_one(TabbedContent)
-        if not tc.active: return
-        
-        tab_idx = int(tc.active.split("-")[1])
-        items = SCHEMA.get(tab_idx, [])
-        for item in items:
-            item.value = item.default
+        try:
+            switcher = self.query_one(ContentSwitcher)
+            if not switcher.current: return
             
-        if ol := self.current_option_list:
-            for idx, item in enumerate(items):
-                is_hl = (idx == ol.highlighted)
-                ol.replace_option_prompt_at_index(idx, self._build_option(item, is_hl))
+            tab_idx = int(switcher.current.split("-")[1])
+            items = SCHEMA.get(tab_idx, [])
+            for item in items:
+                item.value = item.default
                 
-        self.notify_status(f"Reset all items in {TABS[tab_idx]}")
+            if ol := self.current_option_list:
+                for idx, item in enumerate(items):
+                    is_hl = (idx == ol.highlighted)
+                    ol.replace_option_prompt_at_index(idx, self._build_option(item, is_hl))
+                    
+            self.notify_status(f"Reset all items in {TABS[tab_idx]}")
+        except Exception:
+            pass
 
     def action_submit_current(self) -> None:
         ol = self.current_option_list
         if ol and ol.highlighted is not None:
-            # Ensure keyboard submits don't use stale mouse coordinates
             ol._last_click_x = 0
             ol._mouse_down_highlight = None
             self._handle_item_action(ol, ol.highlighted)
@@ -1090,10 +1119,8 @@ class DuskyApp(App):
     def handle_selection(self, event: OptionList.OptionSelected) -> None:
         ol = event.option_list
         if isinstance(ol, ConfigOptionList):
-            # Only trigger action if item was already highlighted prior to the click
             if getattr(ol, "_mouse_down_highlight", None) == event.option_index:
                 self._handle_item_action(ol, event.option_index)
-            # Reset mouse tracking to prevent keyboard hijacks
             ol._mouse_down_highlight = None
             ol._last_click_x = 0
 
@@ -1106,7 +1133,6 @@ class DuskyApp(App):
             
         is_modified = str(item.value) != str(item.default)
         
-        # Smart detection for clicking the "Reset" string on the right margin
         if is_modified and item.type_ != "action":
             val_str = str(item.value)
             if item.type_ == "bool": 
@@ -1121,7 +1147,7 @@ class DuskyApp(App):
                 threshold = 40 + len(val_str)
             
             click_x = getattr(ol, "_last_click_x", 0)
-            if threshold <= click_x <= threshold + 12: # Safe bound
+            if threshold <= click_x <= threshold + 12:
                 item.value = item.default
                 ol.replace_option_prompt_at_index(index, self._build_option(item, True))
                 self.notify_status(f"Reset {item.label}")
