@@ -72,8 +72,7 @@ def color_to_rgb(val: str) -> tuple[int, int, int]:
             except ValueError: pass
     
     m_rgb = re.match(r"rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)", val)
-    if m_rgb:
-        return (int(m_rgb.group(1)), int(m_rgb.group(2)), int(m_rgb.group(3)))
+    if m_rgb: return (int(m_rgb.group(1)), int(m_rgb.group(2)), int(m_rgb.group(3)))
         
     m_hsl = re.match(r"hsla?\(\s*([\d.]+)\s*,\s*([\d.]+)%?\s*,\s*([\d.]+)%?", val)
     if m_hsl:
@@ -103,18 +102,15 @@ def format_rgb(color_name: str, fmt: str, original_val: str) -> str:
     r, g, b = KNOWN_COLORS.get(color_name, (128,128,128))
     
     if fmt == "hex":
-        if len(original_val) == 9 and original_val.startswith("#"):
-            return f"#{r:02x}{g:02x}{b:02x}{original_val[7:9]}"
+        if len(original_val) == 9 and original_val.startswith("#"): return f"#{r:02x}{g:02x}{b:02x}{original_val[7:9]}"
         return f"#{r:02x}{g:02x}{b:02x}"
         
     if fmt == "0xhex":
         alpha = "ff"
-        if original_val.startswith("0x") and len(original_val) == 10:
-            alpha = original_val[2:4]
+        if original_val.startswith("0x") and len(original_val) == 10: alpha = original_val[2:4]
         return f"0x{alpha}{r:02x}{g:02x}{b:02x}"
         
-    if fmt == "rgb":
-        return f"rgb({r}, {g}, {b})"
+    if fmt == "rgb": return f"rgb({r}, {g}, {b})"
         
     if fmt == "rgba":
         alpha = "1.0"
@@ -122,13 +118,10 @@ def format_rgb(color_name: str, fmt: str, original_val: str) -> str:
         if m: alpha = m.group(1)
         return f"rgba({r}, {g}, {b}, {alpha})"
         
-    if fmt == "hsl" or fmt == "hsla":
+    if fmt in ("hsl", "hsla"):
         h, l, s = colorsys.rgb_to_hls(r/255.0, g/255.0, b/255.0)
-        h_deg = int(h * 360)
-        s_pct = int(s * 100)
-        l_pct = int(l * 100)
-        if fmt == "hsl":
-            return f"hsl({h_deg}, {s_pct}%, {l_pct}%)"
+        h_deg, s_pct, l_pct = int(h * 360), int(s * 100), int(l * 100)
+        if fmt == "hsl": return f"hsl({h_deg}, {s_pct}%, {l_pct}%)"
         else:
             alpha = "1.0"
             m = re.search(r"hsla\([^,]+,[^,]+,[^,]+,\s*([0-9.]+)\)", original_val)
@@ -147,13 +140,11 @@ def format_rgb(color_name: str, fmt: str, original_val: str) -> str:
     return f"#{r:02x}{g:02x}{b:02x}"
 
 def load_matugen_json(file_path: Path) -> dict[str, str] | None:
-    if not file_path.exists():
-        return None
+    if not file_path.exists(): return None
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except (OSError, json.JSONDecodeError):
-        return None
+    except (OSError, json.JSONDecodeError): return None
 
 # =============================================================================
 # MODALS & OVERLAYS
@@ -222,14 +213,9 @@ class PickerScreen(ModalScreen[str | None]):
     def on_selected(self, event: OptionList.OptionSelected) -> None:
         self.dismiss(self.options[event.option_index])
 
-    def action_cursor_up(self) -> None:
-        self.query_one(OptionList).action_cursor_up()
-
-    def action_cursor_down(self) -> None:
-        self.query_one(OptionList).action_cursor_down()
-
-    def action_cancel(self) -> None:
-        self.dismiss(None)
+    def action_cursor_up(self) -> None: self.query_one(OptionList).action_cursor_up()
+    def action_cursor_down(self) -> None: self.query_one(OptionList).action_cursor_down()
+    def action_cancel(self) -> None: self.dismiss(None)
 
 class SearchScreen(ModalScreen[tuple[int, int] | None]):
     BINDINGS = [
@@ -270,8 +256,7 @@ class SearchScreen(ModalScreen[tuple[int, int] | None]):
                 if query:
                     q_idx, s_idx = 0, 0
                     while q_idx < len(query) and s_idx < len(search_text):
-                        if query[q_idx] == search_text[s_idx]:
-                            q_idx += 1
+                        if query[q_idx] == search_text[s_idx]: q_idx += 1
                         s_idx += 1
                     match = (q_idx == len(query))
                 
@@ -296,14 +281,9 @@ class SearchScreen(ModalScreen[tuple[int, int] | None]):
         if ol.highlighted is not None and ol.highlighted < len(self.results):
             self.dismiss(self.results[ol.highlighted])
 
-    def action_cursor_down(self) -> None:
-        self.query_one(OptionList).action_cursor_down()
-
-    def action_cursor_up(self) -> None:
-        self.query_one(OptionList).action_cursor_up()
-
-    def action_cancel(self) -> None:
-        self.dismiss(None)
+    def action_cursor_down(self) -> None: self.query_one(OptionList).action_cursor_down()
+    def action_cursor_up(self) -> None: self.query_one(OptionList).action_cursor_up()
+    def action_cancel(self) -> None: self.dismiss(None)
 
 # =============================================================================
 # INTERACTIVE COMPONENTS
@@ -328,17 +308,13 @@ class ConfigOptionList(OptionList):
     _mouse_down_highlight: int | None = None
     _last_click_x: int = 0
 
-    def action_scroll_top(self) -> None:
-        self.highlighted = 0
-        
+    def action_scroll_top(self) -> None: self.highlighted = 0
     def action_scroll_bottom(self) -> None:
         if self.option_count > 0: self.highlighted = self.option_count - 1
-        
     def action_page_down(self) -> None:
         if self.option_count == 0: return
         idx = self.highlighted if self.highlighted is not None else 0
         self.highlighted = min(self.option_count - 1, idx + 10)
-        
     def action_page_up(self) -> None:
         if self.option_count == 0: return
         idx = self.highlighted if self.highlighted is not None else 0
@@ -350,17 +326,12 @@ class ConfigOptionList(OptionList):
 
     def watch_scroll_y(self, old_value: float, new_value: float) -> None:
         super().watch_scroll_y(old_value, new_value)
-        if hasattr(self.app, "_update_scroll_indicators"):
-            self.app._update_scroll_indicators()
-            
+        if hasattr(self.app, "_update_scroll_indicators"): self.app._update_scroll_indicators()
     def watch_max_scroll_y(self, old_value: float, new_value: float) -> None:
         super().watch_max_scroll_y(old_value, new_value)
-        if hasattr(self.app, "_update_scroll_indicators"):
-            self.app._update_scroll_indicators()
-
+        if hasattr(self.app, "_update_scroll_indicators"): self.app._update_scroll_indicators()
     def on_resize(self, event: events.Resize) -> None:
-        if hasattr(self.app, "_update_scroll_indicators"):
-            self.app._update_scroll_indicators()
+        if hasattr(self.app, "_update_scroll_indicators"): self.app._update_scroll_indicators()
 
 class ScrollIndicator(Label):
     _dragging: bool = False
@@ -369,32 +340,24 @@ class ScrollIndicator(Label):
 
     def update_scroll(self, scroll_y: float, max_scroll_y: float, viewport_height: float, virtual_height: float) -> None:
         if max_scroll_y <= 0 or virtual_height <= 0 or viewport_height <= 2:
-            self.display = False
-            return
+            self.display = False; return
         
         self.display = True
         self._max_scroll_y = max_scroll_y
         self._track_height = int(viewport_height) - 2
         
         if self._track_height < 1:
-            self.update("▲\n▼")
-            return
+            self.update("▲\n▼"); return
             
         thumb_size = max(1, int(self._track_height * (viewport_height / virtual_height)))
         max_pos = self._track_height - thumb_size
-        
-        if max_scroll_y > 0:
-            pos = int((scroll_y / max_scroll_y) * max_pos)
-        else:
-            pos = 0
+        pos = int((scroll_y / max_scroll_y) * max_pos) if max_scroll_y > 0 else 0
             
         txt = Text()
         txt.append("▲\n", style="bold")
         for i in range(self._track_height):
-            if pos <= i < pos + thumb_size:
-                txt.append("█\n")
-            else:
-                txt.append("│\n", style="dim")
+            if pos <= i < pos + thumb_size: txt.append("█\n")
+            else: txt.append("│\n", style="dim")
         txt.append("▼", style="bold")
         self.update(txt)
 
@@ -404,11 +367,8 @@ class ScrollIndicator(Label):
         except (AttributeError, IndexError, ValueError): return
         
         ol = self.app.query_one(f"#list-{tab_idx}", ConfigOptionList)
-
-        if event.y == 0:
-            ol.scroll_y -= 1
-        elif event.y == self.size.height - 1:
-            ol.scroll_y += 1
+        if event.y == 0: ol.scroll_y -= 1
+        elif event.y == self.size.height - 1: ol.scroll_y += 1
         else:
             self._dragging = True
             self.capture_mouse()
@@ -418,7 +378,6 @@ class ScrollIndicator(Label):
         if self._dragging:
             try: tab_idx = int(self.id.split("-")[1])
             except (AttributeError, IndexError, ValueError): return
-            
             ol = self.app.query_one(f"#list-{tab_idx}", ConfigOptionList)
             self._jump_to_y(event.y, ol)
 
@@ -447,11 +406,11 @@ class Shortcut(Label):
         return txt
 
     async def on_click(self) -> None:
-        if self.action_name:
-            await self.app.run_action(self.action_name)
+        if self.action_name: await self.app.run_action(self.action_name)
 
 class FileLink(Label):
-    path = ""
+    # FIXED: Path must be reactive so it successfully re-renders when updated in on_mount
+    path = reactive("")
     
     def render(self) -> Text:
         txt = Text()
@@ -751,7 +710,8 @@ class DuskyTUI(App):
                             try:
                                 item.value = float(raw_val) if item.type_ == "float" else int(float(raw_val))
                             except ValueError: pass
-                        elif item.type_ in ("string", "picker", "cycle"):
+                        # FIXED: "color" strings must also have their engine quotes stripped
+                        elif item.type_ in ("string", "picker", "cycle", "color"):
                             item.value = raw_val[1:-1] if raw_val.startswith('"') and raw_val.endswith('"') else raw_val
                         else:
                             item.value = raw_val
@@ -1123,10 +1083,7 @@ class DuskyTUI(App):
             case "int" | "float" | "string" | "color": 
                 self.prompt_string(ol, tab_idx, index, item)
             case "action":
-                if item.key == "demo_sudo":
-                    self.notify_status("Acquiring Sudo... Simulated daemon restart.")
-                else:
-                    self.notify_status(f"Executed: {item.label}")
+                self.notify_status(f"Action triggered: {item.label}")
             case "picker": 
                 self.prompt_picker(ol, tab_idx, index, item)
 
