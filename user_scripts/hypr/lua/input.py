@@ -1,6 +1,24 @@
 #!/usr/bin/env python3
 import sys
+import os
 from pathlib import Path
+
+# =============================================================================
+# CACHE CONFIGURATION
+# Redirect __pycache__ creation to a centralized XDG cache directory.
+# MUST be done before importing custom modules.
+# =============================================================================
+def _setup_cache() -> None:
+    try:
+        xdg_cache_env = os.environ.get("XDG_CACHE_HOME", "").strip()
+        xdg_cache = Path(xdg_cache_env) if xdg_cache_env else Path.home() / ".cache"
+        cache_dir = xdg_cache / "dusky_tui"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        sys.pycache_prefix = str(cache_dir)
+    except OSError:
+        pass
+
+_setup_cache()
 
 # =============================================================================
 # 1. Path Injection (IoC Setup)

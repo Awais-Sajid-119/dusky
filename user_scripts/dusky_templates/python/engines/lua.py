@@ -12,8 +12,8 @@ from python.frontend.core_types import BaseEngine
 # =============================================================================
 # [ BLOCK 1: THE ENGINE ]
 # Armored with Python Raw Strings (r"") to prevent Python from parsing
-# Lua escape sequences, completely neutralizing syntax corruption.
-# Optimized with Atomic Commit/Rollback integrity.
+# Lua escape sequences.
+# Upgraded for Hyprland v0.55.0+ Dynamic API Interception.
 # =============================================================================
 
 class HyprlandLuaEngine(BaseEngine):
@@ -52,6 +52,7 @@ class HyprlandLuaEngine(BaseEngine):
 
         self.file_mtimes[str(self.config_path)] = self.config_path.stat().st_mtime
 
+        # THE HYPRLAND v0.55.0+ DYNAMIC SANDBOX
         lua_evaluator = r"""
         local main_path = arg[1]
         local config_root = {}
@@ -67,6 +68,13 @@ class HyprlandLuaEngine(BaseEngine):
             return dst 
         end
         
+        local function append_list(list_name, tbl)
+            if type(tbl) == "table" then
+                if not config_root[list_name] then config_root[list_name] = {} end
+                table.insert(config_root[list_name], tbl)
+            end
+        end
+        
         local inert_proxy
         local proxy_mt = {
             __index = function() return inert_proxy end,
@@ -78,8 +86,18 @@ class HyprlandLuaEngine(BaseEngine):
         }
         inert_proxy = setmetatable({}, proxy_mt)
         
-        local hl = setmetatable({}, { __index = function() return inert_proxy end })
-        hl.config = function(tbl) if type(tbl) == "table" then deep_merge(config_root, tbl) end end
+        -- DYNAMIC ENDPOINT INTERCEPTION
+        -- If user calls hl.config(), it merges to root.
+        -- If user calls hl.ANYTHING_ELSE(), it appends to a list named 'ANYTHING_ELSE'.
+        local hl = setmetatable({}, {
+            __index = function(_, key)
+                if key == "config" then
+                    return function(tbl) if type(tbl) == "table" then deep_merge(config_root, tbl) end end
+                else
+                    return function(tbl) append_list(key, tbl) end
+                end
+            end
+        })
 
         local safe_env = { 
             hl = hl, math = math, string = string, table = table, type = type, 
@@ -121,8 +139,9 @@ class HyprlandLuaEngine(BaseEngine):
 
         local function walk(t, scope) 
             for k, v in pairs(t) do 
-                if type(k) == "string" then 
-                    local new_scope = scope == "" and k or (scope .. "/" .. k)
+                if type(k) == "string" or type(k) == "number" then 
+                    local str_k = tostring(k)
+                    local new_scope = scope == "" and str_k or (scope .. "/" .. str_k)
                     if type(v) == "table" then walk(v, new_scope) 
                     else table.insert(out_state, escape_str(new_scope)..":"..escape_str(tostring(v))) end 
                 end 
@@ -201,6 +220,9 @@ class HyprlandLuaEngine(BaseEngine):
             local val_path = assert(arg[4], "missing value file")
             local out_path = assert(arg[5], "missing out file")
 
+            local files = {}
+            for k = 6, #arg do table.insert(files, arg[k]) end
+
             local function read_file(path)
                 local f = io.open(path, "rb")
                 if not f then os.exit(4) end
@@ -208,73 +230,76 @@ class HyprlandLuaEngine(BaseEngine):
                 return s
             end
 
-            local text = read_file(src_path)
             local new_value = read_file(val_path)
-            local len = #text
-            local tokens = {}
-            local pos = 1
 
-            local function is_alpha(c) return c:match("^[A-Za-z_]$") ~= nil end
-            local function is_alnum(c) return c:match("^[A-Za-z0-9_]$") ~= nil end
-            local function is_space(c) return c == " " or c == "\t" or c == "\r" or c == "\n" or c == "\v" or c == "\f" end
-            local function add(tp, val, s, e) tokens[#tokens + 1] = { type = tp, val = val, s = s, e = e } end
+            local function tokenize(text)
+                local len = #text
+                local tokens = {}
+                local pos = 1
 
-            local function long_bracket_end_at(p)
-                if text:sub(p, p) ~= "[" then return nil end
-                local q = p + 1
-                while q <= len and text:sub(q, q) == "=" do q = q + 1 end
-                if text:sub(q, q) ~= "[" then return nil end
-                local eqs = text:sub(p + 1, q - 1)
-                local close = "]" .. eqs .. "]"
-                local found = text:find(close, q + 1, true)
-                return found and (found + #close - 1) or nil
-            end
+                local function is_alpha(c) return c:match("^[A-Za-z_]$") ~= nil end
+                local function is_alnum(c) return c:match("^[A-Za-z0-9_]$") ~= nil end
+                local function is_space(c) return c == " " or c == "\t" or c == "\r" or c == "\n" or c == "\v" or c == "\f" end
+                local function add(tp, val, s, e) tokens[#tokens + 1] = { type = tp, val = val, s = s, e = e } end
 
-            while pos <= len do
-                local c = text:sub(pos, pos)
-                if is_space(c) then pos = pos + 1
-                elseif c == "-" and text:sub(pos + 1, pos + 1) == "-" then
-                    pos = pos + 2
-                    local lb_end = long_bracket_end_at(pos)
-                    if lb_end then pos = lb_end + 1
-                    else
-                        local nl = text:find("\n", pos, true)
-                        if nl then pos = nl + 1 else pos = len + 1 end
-                    end
-                elseif c == "'" or c == '"' then
-                    local quote = c; local s = pos; pos = pos + 1
-                    while pos <= len do
-                        local ch = text:sub(pos, pos)
-                        if ch == "\\" then pos = pos + 2
-                        elseif ch == quote then pos = pos + 1; break
-                        else pos = pos + 1 end
-                    end
-                    add("STRING", text:sub(s, pos - 1), s, pos - 1)
-                elseif c == "[" then
-                    local lb_end = long_bracket_end_at(pos)
-                    if lb_end then add("STRING", text:sub(pos, lb_end), pos, lb_end); pos = lb_end + 1
-                    else add("LBRACK", c, pos, pos); pos = pos + 1 end
-                elseif is_alpha(c) then
-                    local s = pos; pos = pos + 1
-                    while pos <= len and is_alnum(text:sub(pos, pos)) do pos = pos + 1 end
-                    add("IDENT", text:sub(s, pos - 1), s, pos - 1)
-                elseif c:match("^[0-9]$") or (c == "." and text:sub(pos + 1, pos + 1):match("^[0-9]$")) then
-                    local s = pos; pos = pos + 1
-                    while pos <= len do
-                        local nc = text:sub(pos, pos)
-                        if nc:match("^[A-Za-z0-9_%.]$") then
-                            pos = pos + 1
-                        elseif (nc == "+" or nc == "-") and text:sub(pos - 1, pos - 1):match("^[eE]$") then
-                            pos = pos + 1
-                        else
-                            break
-                        end
-                    end
-                    add("NUMBER", text:sub(s, pos - 1), s, pos - 1)
-                else
-                    local map = { ["{"]="LBRACE", ["}"]="RBRACE", ["("]="LPAREN", [")"]="RPAREN", ["["]="LBRACK", ["]"]="RBRACK", ["="]="EQUALS", [","]="COMMA", [";"]="SEMI", ["."]="DOT", [":"]="COLON" }
-                    add(map[c] or "OTHER", c, pos, pos); pos = pos + 1
+                local function long_bracket_end_at(p)
+                    if text:sub(p, p) ~= "[" then return nil end
+                    local q = p + 1
+                    while q <= len and text:sub(q, q) == "=" do q = q + 1 end
+                    if text:sub(q, q) ~= "[" then return nil end
+                    local eqs = text:sub(p + 1, q - 1)
+                    local close = "]" .. eqs .. "]"
+                    local found = text:find(close, q + 1, true)
+                    return found and (found + #close - 1) or nil
                 end
+
+                while pos <= len do
+                    local c = text:sub(pos, pos)
+                    if is_space(c) then pos = pos + 1
+                    elseif c == "-" and text:sub(pos + 1, pos + 1) == "-" then
+                        pos = pos + 2
+                        local lb_end = long_bracket_end_at(pos)
+                        if lb_end then pos = lb_end + 1
+                        else
+                            local nl = text:find("\n", pos, true)
+                            if nl then pos = nl + 1 else pos = len + 1 end
+                        end
+                    elseif c == "'" or c == '"' then
+                        local quote = c; local s = pos; pos = pos + 1
+                        while pos <= len do
+                            local ch = text:sub(pos, pos)
+                            if ch == "\\" then pos = pos + 2
+                            elseif ch == quote then pos = pos + 1; break
+                            else pos = pos + 1 end
+                        end
+                        add("STRING", text:sub(s, pos - 1), s, pos - 1)
+                    elseif c == "[" then
+                        local lb_end = long_bracket_end_at(pos)
+                        if lb_end then add("STRING", text:sub(pos, lb_end), pos, lb_end); pos = lb_end + 1
+                        else add("LBRACK", c, pos, pos); pos = pos + 1 end
+                    elseif is_alpha(c) then
+                        local s = pos; pos = pos + 1
+                        while pos <= len and is_alnum(text:sub(pos, pos)) do pos = pos + 1 end
+                        add("IDENT", text:sub(s, pos - 1), s, pos - 1)
+                    elseif c:match("^[0-9]$") or (c == "." and text:sub(pos + 1, pos + 1):match("^[0-9]$")) then
+                        local s = pos; pos = pos + 1
+                        while pos <= len do
+                            local nc = text:sub(pos, pos)
+                            if nc:match("^[A-Za-z0-9_%.]$") then
+                                pos = pos + 1
+                            elseif (nc == "+" or nc == "-") and text:sub(pos - 1, pos - 1):match("^[eE]$") then
+                                pos = pos + 1
+                            else
+                                break
+                            end
+                        end
+                        add("NUMBER", text:sub(s, pos - 1), s, pos - 1)
+                    else
+                        local map = { ["{"]="LBRACE", ["}"]="RBRACE", ["("]="LPAREN", [")"]="RPAREN", ["["]="LBRACK", ["]"]="RBRACK", ["="]="EQUALS", [","]="COMMA", [";"]="SEMI", ["."]="DOT", [":"]="COLON" }
+                        add(map[c] or "OTHER", c, pos, pos); pos = pos + 1
+                    end
+                end
+                return tokens
             end
 
             local function classify_raw(raw)
@@ -311,11 +336,9 @@ class HyprlandLuaEngine(BaseEngine):
                 error("Target value is a complex expression: [" .. tostring(old_raw) .. "]")
             end
 
-            local matches = {}
             local function scope_string(parts) return table.concat(parts, "/") end
 
-            local parse_table
-            local function find_rhs_end(i)
+            local function find_rhs_end(tokens, i)
                 local j = i; local depth = 0; local block_depth = 0; local rhs_end = i
                 while j <= #tokens do
                     local tp = tokens[j].type; local val = tokens[j].val
@@ -334,7 +357,7 @@ class HyprlandLuaEngine(BaseEngine):
                 return rhs_end, j
             end
 
-            local function key_at(i)
+            local function key_at(tokens, i)
                 local tok = tokens[i]
                 if not tok then return nil, i end
                 if tok.type == "IDENT" and tokens[i + 1] and tokens[i + 1].type == "EQUALS" then 
@@ -349,19 +372,20 @@ class HyprlandLuaEngine(BaseEngine):
                 return nil, i
             end
 
-            parse_table = function(i, scope_parts)
+            local function parse_table(tokens, text, i, scope_parts, matches)
                 if not tokens[i] or tokens[i].type ~= "LBRACE" then return i end
                 i = i + 1
+                local array_index = 1
                 while i <= #tokens do
                     if tokens[i].type == "RBRACE" then return i + 1 end
                     if tokens[i].type == "COMMA" or tokens[i].type == "SEMI" then i = i + 1 goto continue end
 
-                    local key, rhs = key_at(i)
+                    local key, rhs = key_at(tokens, i)
                     if key then
-                        local rhs_end, next_i = find_rhs_end(rhs)
+                        local rhs_end, next_i = find_rhs_end(tokens, rhs)
                         if tokens[rhs] and tokens[rhs].type == "LBRACE" then
                             scope_parts[#scope_parts + 1] = key
-                            parse_table(rhs, scope_parts)
+                            parse_table(tokens, text, rhs, scope_parts, matches)
                             scope_parts[#scope_parts] = nil
                         else
                             local curr_scope = scope_string(scope_parts)
@@ -372,8 +396,22 @@ class HyprlandLuaEngine(BaseEngine):
                         end
                         i = next_i
                     else
-                        local _, next_i = find_rhs_end(i)
-                        if next_i <= i then next_i = i + 1 end
+                        local key_str = tostring(array_index)
+                        local rhs_end, next_i = find_rhs_end(tokens, i)
+                        
+                        if tokens[i] and tokens[i].type == "LBRACE" then
+                            scope_parts[#scope_parts + 1] = key_str
+                            parse_table(tokens, text, i, scope_parts, matches)
+                            scope_parts[#scope_parts] = nil
+                        else
+                            local curr_scope = scope_string(scope_parts)
+                            if key_str == target_key and curr_scope == target_scope then
+                                local raw = text:sub(tokens[i].s, tokens[rhs_end].e)
+                                matches[#matches + 1] = { s = tokens[i].s, e = tokens[rhs_end].e, raw = raw }
+                            end
+                        end
+                        
+                        array_index = array_index + 1
                         i = next_i
                     end
                     ::continue::
@@ -381,25 +419,65 @@ class HyprlandLuaEngine(BaseEngine):
                 return i
             end
 
-            local function config_arg_index(i)
-                if tokens[i] and tokens[i].type == "IDENT" and tokens[i].val == "hl" and tokens[i+1] and tokens[i+1].type == "DOT" and tokens[i+2] and tokens[i+2].type == "IDENT" and tokens[i+2].val == "config" then
-                    if tokens[i+3] and tokens[i+3].type == "LPAREN" then return i+4 end
-                    if tokens[i+3] and tokens[i+3].type == "LBRACE" then return i+3 end
+            -- DYNAMIC AST INTERCEPTION
+            -- Matches `hl.ANYTHING_HERE({` and tracks occurrences 
+            local function config_arg_index(tokens, i)
+                if tokens[i] and tokens[i].type == "IDENT" and tokens[i].val == "hl" 
+                   and tokens[i+1] and tokens[i+1].type == "DOT" 
+                   and tokens[i+2] and tokens[i+2].type == "IDENT" then
+                    local method = tokens[i+2].val
+                    if tokens[i+3] and tokens[i+3].type == "LPAREN" then return i+4, method end
+                    if tokens[i+3] and tokens[i+3].type == "LBRACE" then return i+3, method end
                 end
-                return nil
+                return nil, nil
             end
 
-            local i = 1
-            while i <= #tokens do
-                local arg = config_arg_index(i)
-                if arg and tokens[arg] and tokens[arg].type == "LBRACE" then parse_table(arg, {}) end
-                i = i + 1
+            local method_counters = {}
+            local target_tokens = nil
+            local target_text = nil
+            
+            for _, filepath in ipairs(files) do
+                local text = read_file(filepath)
+                local toks = tokenize(text)
+                
+                if filepath == src_path then
+                    target_text = text
+                    target_tokens = toks
+                    break
+                end
+                
+                local idx = 1
+                while idx <= #toks do
+                    local arg_idx, method = config_arg_index(toks, idx)
+                    if arg_idx and method ~= "config" then
+                        method_counters[method] = (method_counters[method] or 0) + 1
+                    end
+                    idx = idx + 1
+                end
+            end
+            
+            if not target_text then os.exit(4) end
+            
+            local matches = {}
+            local idx = 1
+            while idx <= #target_tokens do
+                local arg_idx, method = config_arg_index(target_tokens, idx)
+                if arg_idx then
+                    if method == "config" then
+                        parse_table(target_tokens, target_text, arg_idx, {}, matches)
+                    else
+                        method_counters[method] = (method_counters[method] or 0) + 1
+                        parse_table(target_tokens, target_text, arg_idx, { method, tostring(method_counters[method]) }, matches)
+                    end
+                end
+                idx = idx + 1
             end
 
             io.stderr:write("[Telemetry] Found " .. #matches .. " match(es) for scope '" .. target_scope .. "/" .. target_key .. "'.\n")
 
             if #matches == 0 then os.exit(1) end
             
+            -- Backwards iteration ensures that replacing text doesn't corrupt subsequent string offsets
             for j = #matches, 1, -1 do
                 local m = matches[j]
                 io.stderr:write("[Telemetry] Processing match " .. j .. ": " .. m.raw .. "\n")
@@ -408,12 +486,12 @@ class HyprlandLuaEngine(BaseEngine):
                     io.stderr:write(tostring(repl_or_err), "\n")
                     os.exit(3)
                 end
-                text = text:sub(1, m.s - 1) .. repl_or_err .. text:sub(m.e + 1)
+                target_text = target_text:sub(1, m.s - 1) .. repl_or_err .. target_text:sub(m.e + 1)
             end
             
             local out_f = io.open(out_path, "wb")
             if not out_f then os.exit(5) end
-            out_f:write(text)
+            out_f:write(target_text)
             out_f:close()
             os.exit(0)
             """
@@ -432,8 +510,11 @@ class HyprlandLuaEngine(BaseEngine):
                 except OSError:
                     pass
 
+                # INJECT ALL LOADED FILES for sequential scanning (Guarantees Global Offsets)
+                args = [self.lua_bin, "-", str(target_path), target_key, target_scope, val_path, out_path] + self.loaded_files
+                
                 res = subprocess.run(
-                    [self.lua_bin, "-", str(target_path), target_key, target_scope, val_path, out_path], 
+                    args, 
                     input=lua_mutator, text=True, encoding='utf-8', capture_output=True, timeout=3
                 )
                 
@@ -446,7 +527,6 @@ class HyprlandLuaEngine(BaseEngine):
                         status_msg = f"Lua Error {res.returncode} in {src_file}"
                     break
             else:
-                # Execution finishes clean if no break was hit
                 if pending_replacements:
                     success = True
 
