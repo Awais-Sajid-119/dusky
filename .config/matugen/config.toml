@@ -62,8 +62,8 @@ post_hook = '''
 # -----------------------------------------------------------------------------
 
 [templates.hyprland]
-input_path  = '~/.config/matugen/templates/hyprland-colors.conf'
-output_path = '~/.config/matugen/generated/hyprland-colors.conf'
+input_path  = '~/.config/matugen/templates/hyprland-colors.lua'
+output_path = '~/.config/matugen/generated/hyprland-colors.lua'
 
 [templates.hyprlock]
 input_path  = '~/.config/matugen/templates/hyprlock-colors.conf'
