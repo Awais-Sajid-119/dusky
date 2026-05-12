@@ -21,6 +21,7 @@ from textual.screen import ModalScreen
 from textual.reactive import reactive
 from textual.theme import Theme
 from textual.timer import Timer
+from textual.widget import Widget
 
 from rich.text import Text
 
@@ -384,6 +385,63 @@ class DiffScreen(ModalScreen[None]):
         if event.control is self:
             self.dismiss(None)
 
+class ShortcutsInfoScreen(ModalScreen[None]):
+    BINDINGS = [Binding("escape,q,f1", "cancel", "Close", priority=True)]
+    
+    def compose(self) -> ComposeResult:
+        with Vertical(id="shortcuts-dialog"):
+            with Vertical(id="shortcuts-content"):
+                yield Label("KEYBOARD SHORTCUTS", id="modal-title")
+                yield OptionList(id="shortcuts-list")
+                yield Label("  [ Close ]  ", classes="modal-close-btn")
+                
+    def on_mount(self) -> None:
+        ol = self.query_one(OptionList)
+        bindings_info = [
+            ("q, ctrl+c", "Quit the application"),
+            ("f1", "Show this shortcuts page"),
+            ("?", "Toggle item documentation panel"),
+            ("ctrl+f", "Fuzzy search all options"),
+            ("/", "Inline search in current tab"),
+            ("escape", "Clear inline search / Close modals"),
+            ("tab", "Switch to Next Tab"),
+            ("shift+tab", "Switch to Previous Tab"),
+            ("d", "Show pending or modified items (Diff)"),
+            ("u", "Undo last change"),
+            ("ctrl+t", "Toggle between Auto and Batch save modes"),
+            ("ctrl+s", "Commit all pending changes (only available in Batch mode)"),
+            ("enter", "Trigger action / Input string / Open Picker"),
+            ("j, down", "Move cursor down"),
+            ("k, up", "Move cursor up"),
+            ("h, left", "Adjust value down / Cycle previous option"),
+            ("l, right", "Adjust value up / Cycle next option"),
+            ("g", "Scroll to top of list"),
+            ("G", "Scroll to bottom of list"),
+            ("ctrl+u, page_up", "Page up"),
+            ("ctrl+d, page_down", "Page down"),
+            ("r", "Reset highlighted item to default"),
+            ("R", "Reset entire page to defaults"),
+        ]
+        
+        for keys, desc in bindings_info:
+            txt = Text()
+            txt.append(f"{keys:<20}", style=self.app.theme_colors["accent"] + " bold")
+            txt.append(" ➜ ", style=self.app.theme_colors["muted"])
+            txt.append(desc, style=self.app.theme_colors["fg"])
+            ol.add_option(Option(txt, disabled=True))
+            
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+        
+    @on(events.Click, ".modal-close-btn")
+    def on_close_click(self) -> None:
+        self.dismiss(None)
+        
+    @on(events.Click)
+    def on_background_click(self, event: events.Click) -> None:
+        if event.control is self:
+            self.dismiss(None)
+
 # =============================================================================
 # INTERACTIVE COMPONENTS
 # =============================================================================
@@ -503,8 +561,8 @@ class ScrollIndicator(Label):
         ol.scroll_y = int(ratio * self._max_scroll_y)
 
 class Shortcut(Label):
-    def __init__(self, key_text: str, label: str, action_name: str | None = None) -> None:
-        super().__init__(classes="footer-shortcut")
+    def __init__(self, key_text: str, label: str, action_name: str | None = None, **kwargs) -> None:
+        super().__init__(classes="footer-shortcut", **kwargs)
         self.key_text = key_text
         self.label_text = label
         self.action_name = action_name
@@ -553,29 +611,100 @@ class FileLink(Label):
             if hasattr(self.app, "notify_status"):
                 getattr(self.app, "notify_status")("Error resolving path or launching editor.")
 
+class ModeButton(Label):
+    """Dynamic, Clickable mode button."""
+    
+    def on_mount(self) -> None:
+        self.update_mode()
+
+    def update_mode(self) -> None:
+        txt = Text()
+        txt.append(" Mode: ", style=self.app.theme_colors["fg"])
+        mode_str = "AUTO" if self.app.auto_save else "BATCH"
+        color = self.app.theme_colors["success"] if self.app.auto_save else self.app.theme_colors["warning"]
+        txt.append(mode_str, style=color + " bold")
+        
+        # Safely pull pending_commits
+        pending = getattr(self.app, 'pending_commits', set())
+        if not self.app.auto_save and pending:
+            txt.append(f" │ Pending: {len(pending)}", style=self.app.theme_colors["fg"])
+            
+        # Natively update the layout bounding box dynamically 
+        self.update(txt)
+
+    async def on_click(self) -> None:
+        await self.app.run_action("toggle_save_mode")
+
+class FlowContainer(Widget):
+    """Absolute positioned flow layout that dynamically wraps its children."""
+    def on_mount(self) -> None:
+        self.styles.height = "auto"
+        self.styles.width = "100%"
+        self.call_after_refresh(self.reflow)
+
+    def on_resize(self, event: events.Resize) -> None:
+        self.reflow()
+
+    def reflow(self) -> None:
+        if not self.is_mounted: return
+        width = self.size.width
+        
+        # Prevent premature layout calculations
+        if width <= 0:
+            self.call_after_refresh(self.reflow)
+            return
+            
+        x, y = 0, 0
+        max_h = 1
+        for child in self.children:
+            if not child.display:
+                continue
+                
+            child.styles.position = "absolute"
+            
+            cw = child.outer_size.width
+            if cw <= 0: cw = len(child.render().plain) + 2 
+            ch = child.outer_size.height
+            if ch <= 0: ch = 1
+                
+            if x + cw > width and x > 0:
+                x = 0
+                y += max_h
+                max_h = 1
+                
+            child.styles.offset = (x, y)
+            x += cw
+            max_h = max(max_h, ch)
+            
+        target_height = y + max_h
+        if self.styles.height != target_height:
+            self.styles.height = target_height
+
 class AppFooter(Vertical):
     status_msg = reactive("")
 
     def compose(self) -> ComposeResult:
-        with Horizontal(id="footer-row-1"):
-            yield Shortcut("ctrl+s", "Batch Save", "save_batch")
+        with FlowContainer(id="footer-shortcuts-container"):
+            yield Shortcut("ctrl+s", "Batch Save", "save_batch", id="shortcut-batch-save")
             yield Shortcut("d", "Diff", "show_diff")
             yield Shortcut("u", "Undo", "undo")
             yield Shortcut("?", "Help", "toggle_help")
-            yield Shortcut("ctrl+t", "Toggle Mode", "toggle_save_mode")
-
-        with Horizontal(id="footer-row-2"):
+            yield Shortcut("f1", "Shortcuts", "show_shortcuts")
             yield Shortcut("/", "Jump", "focus_local_search")
             yield Shortcut("ctrl+f", "Search", "search")
             yield Shortcut("r", "Reset Item", "reset_item")
             yield Shortcut("R", "Reset Page", "reset_all")
             yield Shortcut("q", "Quit", "quit")
-            
-        with Horizontal(id="footer-row-3"):
+
+        with Horizontal(id="footer-bottom-row"):
             yield FileLink(id="file-link")
             yield Label(" │ ", classes="footer-sep")
-            yield Label("", id="footer-legend")
+            yield ModeButton(id="footer-legend", classes="mode-btn")
             yield Label("", id="status-bar")
+
+    def on_resize(self, event: events.Resize) -> None:
+        try: self.query_one(FlowContainer).reflow()
+        except Exception: pass
 
     def watch_status_msg(self, new_val: str) -> None:
         try:
@@ -666,21 +795,30 @@ class DuskyTUI(App):
     }
     #local-search.-active { display: block; }
     
-    #footer { height: 4; dock: bottom; border-top: solid $secondary; padding: 0; background: transparent; }
-    #footer-row-1, #footer-row-2, #footer-row-3 { width: 100%; height: 1; }
-    #footer-row-3 { margin-top: 0; }
+    #footer { 
+        height: auto; 
+        min-height: 2;
+        dock: bottom; 
+        border-top: solid $secondary; 
+        padding: 0; 
+        background: transparent; 
+    }
+    
+    #footer-bottom-row { width: 100%; height: 1; margin-top: 0; }
     
     .footer-sep { color: $secondary; }
     
     .footer-shortcut { margin-right: 2; padding: 0 1; background: transparent; }
     .footer-shortcut:hover { text-style: bold; color: $text; background: $primary 25%; }
-    #footer-legend { color: $text; padding: 0 1; }
     #status-bar { padding: 0 1; }
+    
+    .mode-btn { padding: 0 1; background: transparent; }
+    .mode-btn:hover { text-style: bold; color: $text; background: $primary 25%; }
     
     #file-link { padding: 0 1; background: transparent; }
     #file-link:hover { text-style: bold; color: $text; background: $primary 25%; }
     
-    TextInputOverlay, PickerScreen, SearchScreen, DiffScreen { align: center middle; background: rgba(0, 0, 0, 0.75); }
+    TextInputOverlay, PickerScreen, SearchScreen, DiffScreen, ShortcutsInfoScreen { align: center middle; background: rgba(0, 0, 0, 0.75); }
     
     #modal-dialog { width: 50; height: auto; background: transparent; border: round $primary; padding: 0; }
     #modal-content { width: 100%; height: auto; background: $background; padding: 1 2; }
@@ -700,6 +838,11 @@ class DuskyTUI(App):
     #diff-list { height: 1fr; scrollbar-size: 0 0; background: transparent; border: none; }
     #diff-list > .option-list--option { padding: 0 1; background: transparent; }
     
+    #shortcuts-dialog { width: 70; height: 28; background: transparent; border: round $primary; padding: 0; }
+    #shortcuts-content { width: 100%; height: 100%; background: $background; padding: 1 2; }
+    #shortcuts-list { height: 1fr; scrollbar-size: 0 0; background: transparent; border: none; }
+    #shortcuts-list > .option-list--option { padding: 0 1; background: transparent; }
+    
     .modal-close-btn {
         background: $primary 20%; color: $text; text-style: bold;
         content-align: center middle; width: 100%; height: 1;
@@ -717,6 +860,7 @@ class DuskyTUI(App):
     BINDINGS = [
         Binding("q,ctrl+c", "quit", "Quit", priority=True),
         Binding("ctrl+f", "search", "Search", priority=True),
+        Binding("f1", "show_shortcuts", "Shortcuts", priority=True),
         Binding("ctrl+t", "toggle_save_mode", "Toggle Mode", priority=True),
         Binding("ctrl+s", "save_batch", "Save Batch", priority=True),
         Binding("d", "show_diff", "Diff", priority=True),
@@ -869,6 +1013,12 @@ class DuskyTUI(App):
         self._cached_tab_left = self.query_one("#tab-left", Label)
         self._cached_tab_right = self.query_one("#tab-right", Label)
         
+        # Configure Initial Shortcut visibility safely
+        try:
+            batch_shortcut = self.query_one("#shortcut-batch-save")
+            batch_shortcut.display = not self.auto_save
+        except Exception: pass
+        
         state = self.engine.load_state()
         
         for i in range(len(self.tabs)):
@@ -933,16 +1083,22 @@ class DuskyTUI(App):
     def watch_auto_save(self, old: bool, new: bool) -> None:
         if not getattr(self, "is_mounted", False): return
         self._update_footer_legend()
+        
+        try:
+            batch_shortcut = self.query_one("#shortcut-batch-save")
+            batch_shortcut.display = not new
+            # Defer the reflow mathematically until the display change has processed
+            self.call_after_refresh(self.query_one("#footer-shortcuts-container", FlowContainer).reflow)
+        except Exception: pass
+            
         if new and getattr(self, "pending_commits", None):
             self.action_save_batch()
 
     def _update_footer_legend(self) -> None:
         if not getattr(self, "is_mounted", False): return
         try:
-            legend = self.query_one("#footer-legend", Label)
-            mode_str = f"[{self.theme_colors['success']}]AUTO[/]" if self.auto_save else f"[{self.theme_colors['warning']}]BATCH[/]"
-            pending_str = f" │ Pending: {len(getattr(self, 'pending_commits', []))}" if not self.auto_save else ""
-            legend.update(f"Mode: {mode_str}{pending_str}")
+            legend = self.query_one("#footer-legend", ModeButton)
+            legend.update_mode()
         except Exception:
             pass 
 
@@ -1023,8 +1179,8 @@ class DuskyTUI(App):
         if not opt_id or not opt_id.startswith("item_"): return None
         try:
             _, t_idx, i_idx = opt_id.split("_")
-            tab_idx, int(t_idx), int(i_idx)
-            return int(t_idx), int(i_idx), self.schema[int(t_idx)][int(i_idx)]
+            tab_idx, item_idx = int(t_idx), int(i_idx)
+            return tab_idx, item_idx, self.schema[tab_idx][item_idx]
         except (ValueError, KeyError, IndexError): return None
 
     @on(OptionList.OptionHighlighted)
@@ -1185,6 +1341,9 @@ class DuskyTUI(App):
 
     def action_show_diff(self) -> None:
         self.push_screen(DiffScreen())
+
+    def action_show_shortcuts(self) -> None:
+        self.push_screen(ShortcutsInfoScreen())
 
     def action_undo(self) -> None:
         if not self.undo_stack:
