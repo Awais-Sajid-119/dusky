@@ -21,7 +21,7 @@ hl.config({
         force_no_accel = false,          -- Force no cursor acceleration. Bypasses most pointer settings to get a raw signal.
         rotation = 0,                    -- Sets the rotation of a device in degrees clockwise off the logical neutral position.
         left_handed = false,             -- Switches RMB and LMB.
-        
+
         -- --- Scrolling ---
         scroll_points = "",              -- Sets the scroll acceleration profile, when accel_profile is set to custom.
         scroll_method = "2fg",           -- Sets the scroll method. Can be one of 2fg, edge, on_button_down, no_scroll.
