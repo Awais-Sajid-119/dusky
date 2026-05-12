@@ -7,6 +7,7 @@ import colorsys
 import shlex
 import shutil
 import asyncio
+import math
 from pathlib import Path
 from typing import Any
 from collections import deque
@@ -176,14 +177,18 @@ class TextInputOverlay(ModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="modal-dialog"):
-            with Vertical(id="modal-content"):
-                yield Label(self.prompt_text, id="modal-title")
-                yield Input(value=self.default_text, id="modal-input")
-                yield Label("Press Enter to save", id="modal-hint")
-                yield Label("  [ Cancel ]  ", classes="modal-close-btn")
+            yield Label(self.prompt_text, id="modal-title")
+            yield Input(value=self.default_text, id="modal-input")
+            yield Label("Press Enter to save", id="modal-hint")
+            yield Label("  [ Cancel ]  ", classes="modal-close-btn")
 
     def on_mount(self) -> None:
         self.query_one(Input).focus()
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key == "escape":
+            event.stop()
+            self.dismiss(None)
 
     @on(Input.Submitted)
     def handle_submit(self, event: Input.Submitted) -> None:
@@ -217,10 +222,9 @@ class PickerScreen(ModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="picker-dialog"):
-            with Vertical(id="picker-content"):
-                yield Label(f"PICKER: {self.picker_title}", id="picker-title")
-                yield OptionList(id="picker-list")
-                yield Label("  [ Cancel ]  ", classes="modal-close-btn")
+            yield Label(f"PICKER: {self.picker_title}", id="picker-title")
+            yield OptionList(id="picker-list")
+            yield Label("  [ Cancel ]  ", classes="modal-close-btn")
 
     def on_mount(self) -> None:
         ol = self.query_one(OptionList)
@@ -236,6 +240,11 @@ class PickerScreen(ModalScreen[str | None]):
             
         ol.add_options(options_to_add)
         ol.focus()
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key == "escape":
+            event.stop()
+            self.dismiss(None)
 
     @on(OptionList.OptionSelected)
     def on_selected(self, event: OptionList.OptionSelected) -> None:
@@ -265,11 +274,10 @@ class SearchScreen(ModalScreen[tuple[int, int] | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="search-dialog"):
-            with Vertical(id="search-content"):
-                yield Label("FUZZY FIND (Ctrl+F)", id="modal-title")
-                yield Input(placeholder="Type to filter configurations...", id="search-input")
-                yield OptionList(id="search-list")
-                yield Label("  [ Cancel ]  ", classes="modal-close-btn")
+            yield Label("FUZZY FIND (Ctrl+F)", id="modal-title")
+            yield Input(placeholder="Type to filter configurations...", id="search-input")
+            yield OptionList(id="search-list")
+            yield Label("  [ Cancel ]  ", classes="modal-close-btn")
 
     def on_mount(self) -> None:
         self.query_one(Input).focus()
@@ -282,6 +290,11 @@ class SearchScreen(ModalScreen[tuple[int, int] | None]):
                 self._search_cache.append((tab_idx, item_idx, item, tab_name, haystack))
                 
         self._populate_list("")
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key == "escape":
+            event.stop()
+            self.dismiss(None)
 
     @on(Input.Changed)
     def handle_input(self, event: Input.Changed) -> None:
@@ -347,10 +360,9 @@ class DiffScreen(ModalScreen[None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="diff-dialog"):
-            with Vertical(id="diff-content"):
-                yield Label("MODIFICATIONS (From Launch)", id="modal-title")
-                yield OptionList(id="diff-list")
-                yield Label("  [ Close ]  ", classes="modal-close-btn")
+            yield Label("MODIFICATIONS (From Launch)", id="modal-title")
+            yield OptionList(id="diff-list")
+            yield Label("  [ Close ]  ", classes="modal-close-btn")
 
     def on_mount(self) -> None:
         ol = self.query_one(OptionList)
@@ -373,6 +385,11 @@ class DiffScreen(ModalScreen[None]):
         if not added_any:
             ol.add_option(Option("No changes detected from initial load state.", disabled=True))
 
+    def on_key(self, event: events.Key) -> None:
+        if event.key == "escape":
+            event.stop()
+            self.dismiss(None)
+
     def action_cancel(self) -> None:
         self.dismiss(None)
         
@@ -390,10 +407,9 @@ class ShortcutsInfoScreen(ModalScreen[None]):
     
     def compose(self) -> ComposeResult:
         with Vertical(id="shortcuts-dialog"):
-            with Vertical(id="shortcuts-content"):
-                yield Label("KEYBOARD SHORTCUTS", id="modal-title")
-                yield OptionList(id="shortcuts-list")
-                yield Label("  [ Close ]  ", classes="modal-close-btn")
+            yield Label("KEYBOARD SHORTCUTS", id="modal-title")
+            yield OptionList(id="shortcuts-list")
+            yield Label("  [ Close ]  ", classes="modal-close-btn")
                 
     def on_mount(self) -> None:
         ol = self.query_one(OptionList)
@@ -429,6 +445,11 @@ class ShortcutsInfoScreen(ModalScreen[None]):
             txt.append(" ➜ ", style=self.app.theme_colors["muted"])
             txt.append(desc, style=self.app.theme_colors["fg"])
             ol.add_option(Option(txt, disabled=True))
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key == "escape":
+            event.stop()
+            self.dismiss(None)
             
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -518,7 +539,7 @@ class ScrollIndicator(Label):
             
         lines = ["▲"]
         lines.extend(["│"] * pos)
-        lines.extend(["█"] * thumb_size)
+        lines.extend(["┃"] * thumb_size)
         lines.extend(["│"] * (self._track_height - pos - thumb_size))
         lines.append("▼")
         
@@ -624,19 +645,17 @@ class ModeButton(Label):
         color = self.app.theme_colors["success"] if self.app.auto_save else self.app.theme_colors["warning"]
         txt.append(mode_str, style=color + " bold")
         
-        # Safely pull pending_commits
         pending = getattr(self.app, 'pending_commits', set())
         if not self.app.auto_save and pending:
             txt.append(f" │ Pending: {len(pending)}", style=self.app.theme_colors["fg"])
             
-        # Natively update the layout bounding box dynamically 
         self.update(txt)
 
     async def on_click(self) -> None:
         await self.app.run_action("toggle_save_mode")
 
 class FlowContainer(Widget):
-    """Absolute positioned flow layout that dynamically wraps its children."""
+    """Absolute positioned flow layout that enforces perfect vertical columns and fluid justification."""
     def on_mount(self) -> None:
         self.styles.height = "auto"
         self.styles.width = "100%"
@@ -649,34 +668,62 @@ class FlowContainer(Widget):
         if not self.is_mounted: return
         width = self.size.width
         
-        # Prevent premature layout calculations
         if width <= 0:
             self.call_after_refresh(self.reflow)
             return
             
-        x, y = 0, 0
-        max_h = 1
+        visible_children = []
         for child in self.children:
             if not child.display:
                 continue
-                
             child.styles.position = "absolute"
-            
             cw = child.outer_size.width
             if cw <= 0: cw = len(child.render().plain) + 2 
             ch = child.outer_size.height
             if ch <= 0: ch = 1
-                
-            if x + cw > width and x > 0:
-                x = 0
-                y += max_h
-                max_h = 1
-                
-            child.styles.offset = (x, y)
-            x += cw
-            max_h = max(max_h, ch)
+            visible_children.append((child, cw, ch))
+
+        if not visible_children:
+            self.styles.height = 0
+            return
+
+        N = len(visible_children)
+
+        # 1. Find the absolute widest element to establish a safe minimum column width
+        max_item_w = 0
+        max_item_h = 1
+        for _, cw, ch in visible_children:
+            max_item_w = max(max_item_w, cw)
+            max_item_h = max(max_item_h, ch)
+
+        # 2. Determine the physical limit of columns based on width
+        col_w_needed = max_item_w + 2
+        max_cols_possible = max(1, width // col_w_needed)
+
+        # 3. Calculate rows and balanced columns
+        if max_cols_possible >= N:
+            rows = 1
+            cols = N
+        else:
+            rows = math.ceil(N / max_cols_possible)
+            cols = math.ceil(N / rows)
+
+        if cols > max_cols_possible:
+            cols = max_cols_possible
+
+        # 4. Give each column an exactly equal fraction of the screen to form perfect vertical columns
+        actual_col_width = width / cols if cols > 0 else width
+
+        # 5. Place the elements
+        for i, (child, _, _) in enumerate(visible_children):
+            r = i // cols
+            c = i % cols
             
-        target_height = y + max_h
+            x = int(c * actual_col_width)
+            y = r * max_item_h
+            child.styles.offset = (x, y)
+
+        target_height = rows * max_item_h
         if self.styles.height != target_height:
             self.styles.height = target_height
 
@@ -688,7 +735,7 @@ class AppFooter(Vertical):
             yield Shortcut("ctrl+s", "Batch Save", "save_batch", id="shortcut-batch-save")
             yield Shortcut("d", "Diff", "show_diff")
             yield Shortcut("u", "Undo", "undo")
-            yield Shortcut("?", "Help", "toggle_help")
+            yield Shortcut("?", "Help", "toggle_help", id="shortcut-help")
             yield Shortcut("f1", "Shortcuts", "show_shortcuts")
             yield Shortcut("/", "Jump", "focus_local_search")
             yield Shortcut("ctrl+f", "Search", "search")
@@ -753,7 +800,7 @@ class DuskyTUI(App):
         width: 3; height: 1; content-align: center middle;
         background: $background; color: $primary; text-style: bold; display: none;
     }
-    .tab-arrow:hover { color: $text; background: $primary 25%; }
+    .tab-arrow:hover { color: $foreground; background: $primary 25%; }
     
     #content-area { height: 1fr; layout: horizontal; }
     
@@ -774,7 +821,7 @@ class DuskyTUI(App):
     Tabs { width: auto; min-width: 100%; height: 1; background: transparent; }
     Tabs > .underline { display: none; }
     Tab { height: 1; padding: 0 1; color: $primary 60%; background: transparent; border: none; }
-    Tab:hover { color: $text; background: $primary 25%; }
+    Tab:hover { color: $foreground; background: $primary 25%; }
     Tab.-active { color: $background; background: $primary; text-style: bold; border: none; }
     
     .list-wrapper { height: 1fr; }
@@ -786,11 +833,11 @@ class DuskyTUI(App):
     
     .indicator-column { width: 2; height: 1fr; background: transparent; align: right top; }
     ScrollIndicator { width: 1; height: 1fr; color: $primary; }
-    ScrollIndicator:hover { color: $text; }
+    ScrollIndicator:hover { color: $foreground; }
     
     #local-search {
         dock: bottom; border: none; border-top: solid $primary 50%;
-        background: $primary 10%; color: $text;
+        background: $primary 10%; color: $foreground;
         display: none; height: 3;
     }
     #local-search.-active { display: block; }
@@ -808,43 +855,35 @@ class DuskyTUI(App):
     
     .footer-sep { color: $secondary; }
     
-    .footer-shortcut { margin-right: 2; padding: 0 1; background: transparent; }
-    .footer-shortcut:hover { text-style: bold; color: $text; background: $primary 25%; }
+    .footer-shortcut { padding: 0 1; background: transparent; }
+    .footer-shortcut:hover { text-style: bold; color: $foreground; background: $primary 25%; }
+    .footer-shortcut.-active { text-style: bold; color: $background; background: $primary; }
     #status-bar { padding: 0 1; }
     
     .mode-btn { padding: 0 1; background: transparent; }
-    .mode-btn:hover { text-style: bold; color: $text; background: $primary 25%; }
+    .mode-btn:hover { text-style: bold; color: $foreground; background: $primary 25%; }
     
     #file-link { padding: 0 1; background: transparent; }
-    #file-link:hover { text-style: bold; color: $text; background: $primary 25%; }
+    #file-link:hover { text-style: bold; color: $foreground; background: $primary 25%; }
     
     TextInputOverlay, PickerScreen, SearchScreen, DiffScreen, ShortcutsInfoScreen { align: center middle; background: rgba(0, 0, 0, 0.75); }
     
-    #modal-dialog { width: 50; height: auto; background: transparent; border: round $primary; padding: 0; }
-    #modal-content { width: 100%; height: auto; background: $background; padding: 1 2; }
+    #modal-dialog { width: 50; height: auto; background: $background; border: round $primary; padding: 1 2; }
+    #picker-dialog { width: 60; height: 15; background: $background; border: round $primary; padding: 1 2; }
+    #search-dialog { width: 60; height: 20; background: $background; border: round $primary; padding: 1 2; }
+    #diff-dialog { width: 70; height: 25; background: $background; border: round $primary; padding: 1 2; }
+    #shortcuts-dialog { width: 70; height: 28; background: $background; border: round $primary; padding: 1 2; }
     
-    #picker-dialog { width: 60; height: 15; background: transparent; border: round $primary; padding: 0; }
-    #picker-content { width: 100%; height: 100%; background: $background; padding: 1 2; }
-    
-    #search-dialog { width: 60; height: 20; background: transparent; border: round $primary; padding: 0; }
-    #search-content { width: 100%; height: 100%; background: $background; padding: 1 2; }
-    #search-list { height: 1fr; scrollbar-size: 0 0; background: transparent; border: none; }
+    #picker-list, #search-list, #diff-list, #shortcuts-list { height: 1fr; scrollbar-size: 0 0; background: transparent; border: none; }
     #search-list > .option-list--option { padding: 0 1; background: transparent; transition: background 100ms linear; }
     #search-list > .option-list--option-hover { background: $primary 10%; }
-    #search-list > .option-list--option-highlighted { background: $primary 20%; color: $text; text-style: bold; }
+    #search-list > .option-list--option-highlighted { background: $primary 20%; color: $foreground; text-style: bold; }
 
-    #diff-dialog { width: 70; height: 25; background: transparent; border: round $primary; padding: 0; }
-    #diff-content { width: 100%; height: 100%; background: $background; padding: 1 2; }
-    #diff-list { height: 1fr; scrollbar-size: 0 0; background: transparent; border: none; }
     #diff-list > .option-list--option { padding: 0 1; background: transparent; }
-    
-    #shortcuts-dialog { width: 70; height: 28; background: transparent; border: round $primary; padding: 0; }
-    #shortcuts-content { width: 100%; height: 100%; background: $background; padding: 1 2; }
-    #shortcuts-list { height: 1fr; scrollbar-size: 0 0; background: transparent; border: none; }
     #shortcuts-list > .option-list--option { padding: 0 1; background: transparent; }
     
     .modal-close-btn {
-        background: $primary 20%; color: $text; text-style: bold;
+        background: $primary 20%; color: $foreground; text-style: bold;
         content-align: center middle; width: 100%; height: 1;
         margin-top: 1;
     }
@@ -853,7 +892,7 @@ class DuskyTUI(App):
     #modal-title, #picker-title { color: $primary; margin-bottom: 1; text-style: bold; border-bottom: solid $secondary; }
     #modal-hint { color: $secondary; text-style: italic; content-align: center middle; width: 100%; margin-top: 1; }
     
-    Input { border: none; background: transparent; color: $text; border-bottom: solid $primary; }
+    Input { border: none; background: transparent; color: $foreground; border-bottom: solid $primary; }
     Input:focus { border: none; border-bottom: solid $primary; }
     """
 
@@ -1358,6 +1397,14 @@ class DuskyTUI(App):
     def action_toggle_help(self) -> None:
         content_area = self.query_one("#content-area")
         content_area.toggle_class("-show-help")
+        
+        try:
+            help_btn = self.query_one("#shortcut-help", Shortcut)
+            if content_area.has_class("-show-help"):
+                help_btn.add_class("-active")
+            else:
+                help_btn.remove_class("-active")
+        except Exception: pass
         
         if content_area.has_class("-show-help"):
             ol = self.current_option_list
