@@ -9,7 +9,7 @@
 -- -------------------------------------------------------------------------------------------------
 
 local terminal    = "kitty"
-local fileManager = "yazi"
+local fileManager = "nemo"
 local menu        = "rofi -show drun"
 local browser     = "firefox"
 local textEditor  = "nvim"

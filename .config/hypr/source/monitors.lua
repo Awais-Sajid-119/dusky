@@ -40,8 +40,10 @@ hl.monitor({
 -- -------------------------------------------------------------------------------------------------
 hl.config({
     misc = {
+
+--       for some reason vfr throws and error with unknown key 'misc.vfr on 55' so commented
         -- Power Saving & Refresh Rate (true saves power because gpu doesn't have to render frames when idle)
---        vfr = true,
+--         vfr = true,
 
         -- uses extra 1 watt but looks smoother when enabled (1)
         vrr = 0
