@@ -1549,6 +1549,19 @@ class DuskyTUI(App):
         tab_idx, item_idx, item = parsed
 
         new_val = item.value
+
+        # SURGICAL OVERRIDE: If explicit options are provided, cycle through them regardless of type
+        if item.options and item.type_ != "bool":
+            try: 
+                idx = item.options.index(item.value)
+            except ValueError: 
+                idx = 0
+            new_val = item.options[(idx + direction) % len(item.options)]
+            
+            if new_val != item.value:
+                self._apply_value(tab_idx, item_idx, item, new_val)
+            return
+
         match item.type_:
             case "bool": new_val = not item.value
             case "int" | "float":
@@ -1557,11 +1570,7 @@ class DuskyTUI(App):
                 if item.min_val is not None: new_val = max(item.min_val, new_val)
                 if item.max_val is not None: new_val = min(item.max_val, new_val)
                 new_val = round(new_val, 6) if item.type_ == "float" else int(new_val)
-            case "cycle":
-                if not item.options: return
-                try: idx = item.options.index(item.value)
-                except ValueError: idx = 0
-                new_val = item.options[(idx + direction) % len(item.options)]
+            case "cycle": return # Handled by the override above
             case "color":
                 r, g, b = color_to_rgb(str(item.value))
                 current_name = get_color_name(r, g, b)

@@ -64,17 +64,17 @@ from python.frontend.core_types import ConfigItem
 
 # Path to the Lua config file this schema reads from and writes to.
 # Tilde expansion is handled automatically by main.py.
-TARGET_FILE = "~/.config/hypr/hyprland.lua"
+TARGET_FILE = "~/.config/hypr/edit_here/source/monitors.lua"
 
 # Optional: path to a matugen-generated JSON theme file.
 # Set to None if you don't use matugen.
-THEME_FILE = "~/.config/matugen/colors.json"
+THEME_FILE = "~/.config/matugen/generated/dusky_tui.json"
 
 # =============================================================================
 # SECTION 2 — APP METADATA
 # =============================================================================
 
-APP_TITLE = "My App Configurator"
+APP_TITLE = "configure monitors"
 
 # Controls the initial color mode of the TUI.
 # Options: "auto" | "dark" | "light"
@@ -121,18 +121,19 @@ TABS = [
 #     "bool"     Toggle — true/false. Left/Right arrows flip it. No input box.
 #
 #     "int"      Integer — Enter key opens a text box. min_val/max_val/step
-#                supported. Arrow keys nudge by step.
+#                supported. Arrow keys nudge by step (unless options=[] is provided).
 #
-#     "float"    Float — same as int but fractional. Arrow keys nudge by step.
+#     "float"    Float — same as int but fractional. Arrow keys nudge by step 
+#                (unless options=[] is provided).
 #
 #     "string"   Free-form text — Enter opens a text box. No min/max.
 #
 #     "cycle"    Cycles through a fixed list of strings. Requires options=[].
 #                Arrow keys step forward/back through the list.
 #
-#     "color"    Color value. Arrow keys cycle through named colors while
-#                preserving your original format (0xAARRGGBB, #rrggbb, rgb(),
-#                rgba(), hsl(), oklch()). Enter opens a text box for raw edits.
+#     "color"    Color value. Arrow keys cycle through named colors (or a custom 
+#                options=[] list) while preserving your original format (0xAARRGGBB, 
+#                #rrggbb, rgb(), rgba(), hsl(), oklch()). Enter opens a text box.
 #
 #     "picker"   Opens a pop-up list of options with optional hint text per
 #                option. Requires options=[] and optionally hints=[].
@@ -143,8 +144,11 @@ TABS = [
 #   default      (Any)        The value the item resets to with `r` or `--default`.
 #                             Use Python booleans (True/False), not strings.
 #
-#   options      (list[str])  Required for "cycle" and "picker". Ignored by all
-#                             other types.
+#   options      (list[Any])  Required for "cycle" and "picker". Optional for "int",
+#                             "float", "string", and "color". If provided on these
+#                             types, the left/right arrow keys will cycle strictly
+#                             through this predefined list instead of doing math or
+#                             default cycling.
 #
 #   hints        (list[str])  Optional for "picker". One hint string per option,
 #                             shown as a subtitle in the picker pop-up. Must be
@@ -195,6 +199,17 @@ SCHEMA: dict[int, list[ConfigItem]] = {
             max_val=20,
             step=1,
             extended_help="Width of window borders in pixels.",
+        ),
+        
+        # --- PREDEFINED OPTIONS EXAMPLE (Overrides math logic) --------------
+        ConfigItem(
+            label="Locked Border Size",
+            key="locked_border",
+            scope="general",
+            type_="int",
+            default=2,
+            options=[0, 2, 5, 8, 15], # Left/right arrows will cycle exactly these values
+            extended_help="Cycles precisely between 0, 2, 5, 8, and 15.",
         ),
 
         # --- FLOAT EXAMPLE --------------------------------------------------
@@ -255,6 +270,7 @@ SCHEMA: dict[int, list[ConfigItem]] = {
             scope="general/col",
             type_="color",
             default="0xff414453",
+            options=["background", "error", "primary", "secondary"], # Constrains to theme values
         ),
     ],
 
@@ -457,7 +473,7 @@ SCHEMA: dict[int, list[ConfigItem]] = {
 #     type_         = "bool",             # bool | int | float | string | cycle |
 #                                         # color | picker | action
 #     default       = ...,               # Python value: True/False, int, float, str
-#     options       = [],                # Required for cycle and picker
+#     options       = [],                # Overrides arrow-key behavior for int/color/etc.
 #     hints         = [],                # Optional for picker (must match len(options))
 #     min_val       = None,              # int/float lower bound
 #     max_val       = None,              # int/float upper bound
