@@ -111,7 +111,8 @@ execute_atomic_swap() {
     fi
 
     local has_block=0
-    grep -q "$MARKER_START" "$actual_target" && has_block=1
+    # FIX: Use -F (Fixed Strings) and -- (End of options) to prevent the "--" in MARKER_START from breaking grep
+    grep -Fq -- "$MARKER_START" "$actual_target" && has_block=1
 
     if [[ "$action" == "remove" && $has_block -eq 0 ]]; then
         log_skip "Generic config active (no changes needed) in: $base_name"
@@ -131,6 +132,7 @@ execute_atomic_swap() {
     command cp -pf "${actual_target}" "${temp_file}"
 
     if [[ "$action" == "remove" ]]; then
+        # Safely excise ALL blocks between MARKER_START and MARKER_END
         sed -i '/^'"$MARKER_START"'$/,/^'"$MARKER_END"'$/d' "$temp_file"
     elif [[ "$action" == "inject" ]]; then
         if [[ -s "${temp_file}" ]] && [[ -n "$(tail -c 1 "${temp_file}" | tr -d '\n')" ]]; then
