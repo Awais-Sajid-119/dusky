@@ -8,42 +8,42 @@
 -- HYPRLAND KEYBINDINGS
 -- -------------------------------------------------------------------------------------------------
 
-terminal    = "kitty"
-fileManager = "nemo"
-menu        = "rofi -show drun"
-browser     = "firefox"
-textEditor  = "nvim"
-
--- Path shortcut for cleaner config
-
-
--- -------------------------------------------------------------------------------------------------
--- 2. APPLICATION LAUNCHERS
--- -------------------------------------------------------------------------------------------------
-
-hl.bind(
-    "SUPER + Q",
-    hl.dsp.exec_cmd(terminal),
-    { description = "Launch Terminal" }
-)
-
-hl.bind(
-    "SUPER + W",
-    hl.dsp.exec_cmd(browser),
-    { description = "Launch Browser" }
-)
-
-hl.bind(
-    "SUPER + E",
-    hl.dsp.exec_cmd(terminal .. " -e " .. fileManager),
-    { description = "File Manager" }
-)
-
-hl.bind(
-    "SUPER + R",
-    hl.dsp.exec_cmd(terminal .. " --class nvim -e " .. textEditor),
-    { description = "Open Text Editor" }
-)
+-- terminal    = "kitty"
+-- fileManager = "nemo"
+-- menu        = "rofi -show drun"
+-- browser     = "firefox"
+-- textEditor  = "nvim"
+--
+-- -- Path shortcut for cleaner config
+--
+--
+-- -- -------------------------------------------------------------------------------------------------
+-- -- 2. APPLICATION LAUNCHERS
+-- -- -------------------------------------------------------------------------------------------------
+--
+-- hl.bind(
+--     "SUPER + Q",
+--     hl.dsp.exec_cmd(terminal),
+--     { description = "Launch Terminal" }
+-- )
+--
+-- hl.bind(
+--     "SUPER + W",
+--     hl.dsp.exec_cmd(browser),
+--     { description = "Launch Browser" }
+-- )
+--
+-- hl.bind(
+--     "SUPER + E",
+--     hl.dsp.exec_cmd(terminal .. " -e " .. fileManager),
+--     { description = "File Manager" }
+-- )
+--
+-- hl.bind(
+--     "SUPER + R",
+--     hl.dsp.exec_cmd(terminal .. " --class nvim -e " .. textEditor),
+--     { description = "Open Text Editor" }
+-- )
 
 hl.bind(
     "ALT + SPACE",
