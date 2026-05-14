@@ -24,9 +24,9 @@ THEME_FILE = "~/.config/matugen/generated/dusky_tui.json"
 # 3. TABS DEFINITION
 # =============================================================================
 TABS = [
-    "1. Power & Performance",
-    "2. Color Pipeline & HDR",
-    "3. Profiles & Presets"
+    "Power",
+    "Color",
+    "Profiles"
 ]
 
 # =============================================================================

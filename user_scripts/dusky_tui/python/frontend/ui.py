@@ -728,6 +728,15 @@ class AppFooter(Vertical):
 # =============================================================================
 # MAIN APPLICATION
 # =============================================================================
+class TabContainer(Horizontal):
+    """A custom container that tells the App to re-evaluate tab overflow when scrolled."""
+    def watch_scroll_x(self, old_value: float, new_value: float) -> None:
+        if hasattr(self.app, "check_tab_overflow"):
+            self.app.check_tab_overflow()
+    
+    def watch_max_scroll_x(self, old_value: float, new_value: float) -> None:
+        if hasattr(self.app, "check_tab_overflow"):
+            self.app.check_tab_overflow()
 
 class DuskyTUI(App):
     CSS = """
@@ -748,7 +757,7 @@ class DuskyTUI(App):
 
     #tab-bar { width: 100%; height: 1; margin-bottom: 1; background: transparent; }
 
-    #tabs-container { width: 1fr; height: 1; overflow-x: auto; scrollbar-size: 0 0; }
+    #tabs-container { width: 1fr; height: 1; overflow-x: auto; scrollbar-size: 0 0; align: center middle; }
 
     .tab-arrow {
         width: 3; height: 1; content-align: center middle;
@@ -768,7 +777,7 @@ class DuskyTUI(App):
     #content-area.-show-help ContentSwitcher { width: 65%; }
     #content-area.-show-help #help-panel { display: block; }
 
-    Tabs { width: auto; min-width: 100%; height: 1; background: transparent; }
+    Tabs { width: auto; height: 1; background: transparent; }
     Tabs > .underline { display: none; }
     Tab { height: 1; padding: 0 1; color: $primary 60%; background: transparent; border: none; }
     Tab:hover { color: $foreground; background: $primary 25%; }
@@ -792,7 +801,7 @@ class DuskyTUI(App):
     }
     #local-search.-active { display: block; }
 
-    #footer { height: auto; min-height: 2; dock: bottom; border-top: solid $secondary; padding: 0; background: transparent; }
+    #footer { height: auto; min-height: 2; dock: bottom; border-top: solid $secondary; padding: 0 2; background: transparent; }
     #footer-bottom-row { width: 100%; height: 1; margin-top: 0; }
 
     .footer-sep { color: $secondary; }
@@ -914,11 +923,16 @@ class DuskyTUI(App):
         with Vertical(id="main-box"):
             with Horizontal(id="tab-bar"):
                 yield Label(" ◀ ", id="tab-left", classes="tab-arrow")
-                with Horizontal(id="tabs-container"):
-                    yield Tabs(
+                with TabContainer(id="tabs-container"):
+                    tabs_widget = Tabs(
                         *[Tab(name, id=f"tab-id-{i}") for i, name in enumerate(self.tabs)],
                         id="tabs"
                     )
+                    # Force the Tabs bounding box to snap exactly to its children.
+                    # Each tab has a padding of 2 (0 1). Text(name).cell_len handles unicode safely.
+                    tabs_width = sum(Text(name).cell_len + 2 for name in self.tabs)
+                    tabs_widget.styles.width = tabs_width
+                    yield tabs_widget
                 yield Label(" ▶ ", id="tab-right", classes="tab-arrow")
 
             with Horizontal(id="content-area"):
@@ -991,7 +1005,7 @@ class DuskyTUI(App):
         ratio = 0.0
         is_active_preset = False
         is_deviated_preset = False
-        
+
         if item.type_ == "preset":
             ratio = self._get_preset_match_ratio(item)
             is_active_preset = (ratio == 1.0)
@@ -1264,24 +1278,32 @@ class DuskyTUI(App):
     def check_tab_overflow(self) -> None:
         if not self._cached_tabs_container or not self._cached_tab_left or not self._cached_tab_right: return
         try:
-            container, left, right = self._cached_tabs_container, self._cached_tab_left, self._cached_tab_right
+            container = self._cached_tabs_container
+            left = self._cached_tab_left
+            right = self._cached_tab_right
+            
+            # max_scroll_x evaluates true strictly when the inner Tabs overflow the container
             has_overflow = container.max_scroll_x > 0
+            
             if has_overflow:
+                # 1. Switch to left-alignment so the negative-crop geometry bug doesn't occur.
+                if container.styles.align != ("left", "middle"):
+                    container.styles.align = ("left", "middle")
+                
+                # 2. Show/hide arrows based on precise scroll offsets
                 left.display = container.scroll_x > 0.5
                 right.display = container.scroll_x < (container.max_scroll_x - 0.5)
             else:
-                left.display = right.display = False
-        except Exception: pass
-
-    @on(events.Click, "#tab-left")
-    def scroll_tabs_left(self, event: events.Click) -> None:
-        event.stop()
-        if self._cached_tabs_container: self._cached_tabs_container.scroll_relative(x=-40, animate=True)
-
-    @on(events.Click, "#tab-right")
-    def scroll_tabs_right(self, event: events.Click) -> None:
-        event.stop()
-        if self._cached_tabs_container: self._cached_tabs_container.scroll_relative(x=40, animate=True)
+                # 1. Switch back to perfect centering
+                if container.styles.align != ("center", "middle"):
+                    container.styles.align = ("center", "middle")
+                
+                # 2. Force arrows hidden
+                left.display = False
+                right.display = False
+                
+        except Exception: 
+            pass
 
     async def watch_theme_file(self) -> None:
         if not self.theme_path: return
@@ -1345,6 +1367,20 @@ class DuskyTUI(App):
                 self._update_scroll_indicators()
                 self.check_tab_overflow()
         except Exception: pass
+
+    @on(events.Click, "#tab-left")
+    def scroll_tabs_left(self, event: events.Click) -> None:
+        """Make the left arrow dynamically scroll the container."""
+        event.stop()
+        if self._cached_tabs_container:
+            self._cached_tabs_container.scroll_relative(x=-40, animate=True)
+
+    @on(events.Click, "#tab-right")
+    def scroll_tabs_right(self, event: events.Click) -> None:
+        """Make the right arrow dynamically scroll the container."""
+        event.stop()
+        if self._cached_tabs_container:
+            self._cached_tabs_container.scroll_relative(x=40, animate=True)
 
     def trigger_shortcut_blink(self, key_id: str) -> None:
         try: self.query_one(f"#shortcut-{key_id}", Shortcut).blink()
@@ -1889,26 +1925,37 @@ class DuskyTUI(App):
         if ol and ol.last_highlighted_id:
             ol._last_click_x = 0
             ol._mouse_down_highlight = None
-            self._handle_item_action(ol, ol.last_highlighted_id)
+            self._handle_item_action(ol, ol.last_highlighted_id, click_x=0, was_already_selected=True)
 
     @on(OptionList.OptionSelected)
     def handle_selection(self, event: OptionList.OptionSelected) -> None:
         ol = event.option_list
         if isinstance(ol, ConfigOptionList):
-            if getattr(ol, "_mouse_down_highlight", None) == event.option_index:
-                self._handle_item_action(ol, event.option_id)
-            ol._mouse_down_highlight = None
+            click_x = getattr(ol, "_last_click_x", 0)
+            was_already_selected = getattr(ol, "_mouse_down_highlight", None) == event.option_index
+            self._handle_item_action(ol, event.option_id, click_x, was_already_selected)
             ol._last_click_x = 0
+            ol._mouse_down_highlight = None
 
-    def _handle_item_action(self, ol: ConfigOptionList, opt_id: str | None) -> None:
+    def _handle_item_action(self, ol: ConfigOptionList, opt_id: str | None, click_x: int = 0, was_already_selected: bool = False) -> None:
         if not opt_id: return
         parsed = self._get_item_from_id(opt_id)
         if not parsed: return
         tab_idx, item_idx, item = parsed
 
-        click_x = getattr(ol, "_last_click_x", 0)
+        is_keyboard = (click_x == 0)
+        instant_action = False
 
-        if item.is_parent and 1 <= click_x <= 8:
+        if item.is_parent and (1 <= click_x <= 9):
+            instant_action = True
+            
+        if item.type_ in ("preset", "action") and click_x >= 44:
+            instant_action = True
+
+        if not is_keyboard and not instant_action and not was_already_selected:
+            return  # First click on text just highlights it
+
+        if item.is_parent and instant_action:
             self.action_toggle_expand()
             return
 
@@ -1919,7 +1966,7 @@ class DuskyTUI(App):
             reset_width = 10
             threshold = total_width - reset_width
 
-            if threshold <= click_x <= total_width + 2:
+            if threshold <= click_x <= total_width + 2 and not is_keyboard:
                 self.action_reset_item()
                 return
 
