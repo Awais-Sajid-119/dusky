@@ -393,7 +393,7 @@ class ShortcutsInfoScreen(ModalScreen[None]):
             ("ctrl+r", "Redo last undone change"),
             ("ctrl+t", "Toggle between Auto and Batch save modes"),
             ("ctrl+s", "Commit all pending changes (only available in Batch mode)"),
-            ("enter", "Trigger action / Toggle boolean / Open Picker"),
+            ("enter", "Trigger action / Toggle boolean / Open Picker / Expand Folder"),
             ("e, space", "Expand / Collapse nested option menus"),
             ("j, down", "Move cursor down"),
             ("k, up", "Move cursor up"),
@@ -950,7 +950,7 @@ class DuskyTUI(App):
             total, matches = 0, 0
             for t_idx, items in self.schema.items():
                 for target_item in items:
-                    if target_item.type_ not in ("action", "preset") and target_item.exists_in_target:
+                    if target_item.type_ not in ("action", "preset", "menu") and target_item.exists_in_target:
                         total += 1
                         if str(target_item.value) == str(target_item.default) or target_item.default is None:
                             matches += 1
@@ -1015,7 +1015,7 @@ class DuskyTUI(App):
                 txt.append("●  ", style=self.theme_colors["warning"]) # Indicates user tweaked the preset
             else:
                 txt.append("●  ", style=self.theme_colors["muted"])
-        elif item.type_ == "action":
+        elif item.type_ in ("action", "menu"):
             txt.append("●  ", style=self.theme_colors["muted"])
         else:
             if not self.auto_save and is_pending:
@@ -1044,7 +1044,7 @@ class DuskyTUI(App):
         val_str = str(item.value)
 
         # TAIL RENDERING (Values, Tags, Actions)
-        if item.type_ in ("action", "preset"):
+        if item.type_ in ("action", "preset", "menu"):
             txt.append("   ")
             if item.type_ == "preset":
                 if is_active_preset:
@@ -1053,8 +1053,9 @@ class DuskyTUI(App):
                     txt.append("Apply", style=f"bold {self.theme_colors['warning']}")
                 else:
                     txt.append("Apply", style=f"bold {self.theme_colors['accent']}" if exists else f"{self.theme_colors['muted']} italic")
-            else:
+            elif item.type_ == "action":
                 txt.append("⚡ Execute Action", style=f"bold {self.theme_colors['warning']}" if exists else f"{self.theme_colors['muted']} italic")
+            # If it's a menu, we just append the blank space above.
         else:
             # Render standard item values
             accent = self.theme_colors["accent"] if exists else self.theme_colors["muted"]
@@ -1122,7 +1123,7 @@ class DuskyTUI(App):
 
                 cache_key = f"{item.scope}/{item.key}" if item.scope else item.key
                 
-                if item.type_ in ("action", "preset"):
+                if item.type_ in ("action", "preset", "menu"):
                     item.exists_in_target = True
                 elif cache_key in state:
                     item.exists_in_target = True
@@ -1928,6 +1929,7 @@ class DuskyTUI(App):
             case "action": self.execute_action(item)
             case "preset": self.apply_preset(item)
             case "picker": self.prompt_picker(tab_idx, item_idx, item)
+            case "menu": self.action_toggle_expand()
 
     def execute_action(self, item: ConfigItem) -> None:
         command = str(item.default) if item.default else ""
@@ -1981,7 +1983,7 @@ class DuskyTUI(App):
         if preset_item.preset_payload.get("__ALL_DEFAULTS__"):
             for t_idx, items in self.schema.items():
                 for i_idx, target_item in enumerate(items):
-                    if target_item.type_ not in ("action", "preset"):
+                    if target_item.type_ not in ("action", "preset", "menu"):
                         if not target_item.exists_in_target:
                             skipped += 1
                             continue

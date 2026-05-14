@@ -24,9 +24,9 @@ THEME_FILE = "~/.config/matugen/generated/dusky_tui.json"
 # 3. TABS DEFINITION
 # =============================================================================
 TABS = [
-    "1. Display Server & Essentials",
-    "2. Background Services & UI",
-    "3. Diagnostics & Hacks"
+    "Display Server & Essentials",
+    "Background Services & UI",
+    "Diagnostics & Hacks"
 ]
 
 # =============================================================================
