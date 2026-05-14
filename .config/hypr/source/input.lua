@@ -1,133 +1,135 @@
 -- -------------------------------------------------------------------------------------------------
--- 1. INPUT (KEYBOARD, MOUSE, TOUCHPAD, TABLET, VIRTUAL KEYBOARD)
+-- INPUT  (keyboard · mouse · tablet · virtual keyboard)
 -- -------------------------------------------------------------------------------------------------
 hl.config({
     input = {
         -- --- Keyboard ---
-        kb_model = "",                   -- Appropriate XKB keymap parameter.
-        kb_layout = "us",                -- Appropriate XKB keymap parameter.
-        kb_variant = "",                 -- Appropriate XKB keymap parameter.
-        kb_options = "",                 -- Appropriate XKB keymap parameter.
-        kb_rules = "",                   -- Appropriate XKB keymap parameter.
-        kb_file = "",                    -- If you prefer, you can use a path to your custom .xkb file.
-        numlock_by_default = false,      -- Engage numlock by default.
-        resolve_binds_by_sym = false,    -- Determines how keybinds act when multiple layouts are used.
-        repeat_rate = 35,                -- The repeat rate for held-down keys, in repeats per second.
-        repeat_delay = 250,              -- Delay before a held-down key is repeated, in milliseconds.
+        kb_model        = "",            -- XKB keymap model.
+        kb_layout       = "us",          -- XKB keymap layout.
+        kb_variant      = "",            -- XKB keymap variant.
+        kb_options      = "",            -- XKB keymap options.
+        kb_rules        = "",            -- XKB keymap rules.
+        kb_file         = "",            -- Path to a custom .xkb file (overrides the above).
+        numlock_by_default   = false,    -- Engage numlock on startup.
+        resolve_binds_by_sym = false,    -- How keybinds behave with multiple layouts active.
+        repeat_rate      = 35,           -- Key repeat rate in repeats/sec.
+        repeat_delay     = 250,          -- Delay in ms before key repeat starts.
 
         -- --- Mouse & Pointer ---
-        sensitivity = 0.0,               -- Sets the mouse input sensitivity. Value is clamped to the range -1.0 to 1.0.
-        accel_profile = "adaptive",      -- Sets the cursor acceleration profile. Can be one of adaptive, flat, or custom.
-        force_no_accel = false,          -- Force no cursor acceleration. Bypasses most pointer settings to get a raw signal.
-        rotation = 0,                    -- Sets the rotation of a device in degrees clockwise off the logical neutral position.
-        left_handed = false,             -- Switches RMB and LMB.
+        sensitivity           = 0.0,    -- libinput sensitivity, clamped -1.0 to 1.0.
+        accel_profile         = "adaptive", -- "adaptive", "flat", or "custom".
+        force_no_accel        = false,   -- Bypass all acceleration; raw signal only.
+        rotation              = 0,       -- Device rotation in degrees clockwise.
+        left_handed           = false,   -- Swap LMB and RMB.
 
         -- --- Scrolling ---
-        scroll_points = "",              -- Sets the scroll acceleration profile, when accel_profile is set to custom.
-        scroll_method = "2fg",           -- Sets the scroll method. Can be one of 2fg, edge, on_button_down, no_scroll.
-        scroll_button = 0,               -- Sets the scroll button. 0 means default.
-        scroll_button_lock = false,      -- Toggles the button lock logically holding it down to convert motion to scroll events.
-        scroll_factor = 1.0,             -- Multiplier added to scroll movement for external mice.
-        natural_scroll = false,          -- Inverts scrolling direction. Scrolling moves content directly.
-        emulate_discrete_scroll = 1,     -- Emulates discrete scrolling from high resolution scrolling events (0: off, 1: non-standard, 2: all).
+        scroll_points             = "",  -- Custom acceleration profile (only with accel_profile = "custom").
+        scroll_method             = "2fg", -- "2fg", "edge", "on_button_down", "no_scroll".
+        scroll_button             = 0,   -- Scroll button; 0 = default.
+        scroll_button_lock        = false, -- Lock scroll button logically (hold to scroll mode).
+        scroll_factor             = 1.0, -- Scroll speed multiplier for external mice.
+        natural_scroll            = false, -- Invert scroll direction (content follows finger).
+        emulate_discrete_scroll   = 1,   -- Discretise hi-res scroll events: 0=off 1=non-std 2=all.
 
-        -- --- Focus & Interaction Behavior ---
-        follow_mouse = 1,                -- Specify if and how cursor movement should affect window focus.
-        follow_mouse_shrink = 0,         -- Shrinks the inactive window hitboxes used for focus detection by pixels.
-        follow_mouse_threshold = 0.0,    -- Smallest distance in logical pixels the mouse needs to travel to focus a window.
-        focus_on_close = 0,              -- Controls window focus behavior when a window is closed (0: next, 1: under cursor, 2: recent).
-        mouse_refocus = true,            -- If disabled, mouse focus won't switch unless crossing a window boundary when follow_mouse=1.
-        float_switch_override_focus = 1, -- Focus changes to window under cursor when changing tiled-to-floating and vice versa.
-        special_fallthrough = false,     -- Having only floating windows in special workspace will not block focusing in regular workspace.
-        off_window_axis_events = 1,      -- Handles axis events around a focused window (0: ignores, 1: out-of-bounds, 2: fakes, 3: warps).
+        -- --- Focus & Window Interaction ---
+        follow_mouse              = 1,   -- 0=disabled 1=full 2=loose 3=fully decoupled.
+        follow_mouse_shrink       = 0,   -- Shrink inactive window hit-boxes by this many px.
+        follow_mouse_threshold    = 0.0, -- Minimum cursor travel (px) to change focus.
+        focus_on_close            = 0,   -- After closing: 0=next 1=under cursor 2=recent.
+        mouse_refocus             = true,  -- Re-focus on mouse move when follow_mouse=1.
+        float_switch_override_focus = 1, -- Focus window under cursor on tiled↔float change.
+        special_fallthrough       = false, -- Float-only special WS won't block regular WS focus.
+        off_window_axis_events    = 1,   -- Axis events outside focused window: 0=ignore 1=out-of-bounds 2=fake 3=warp.
 
-        -- --- Touchpad (Subcategory of Input) ---
+        -- --- Touchpad ---
         touchpad = {
-            disable_while_typing = true,     -- Disable the touchpad while typing.
-            natural_scroll = true,           -- Inverts scrolling direction. Scrolling moves content directly.
-            scroll_factor = 1.0,             -- Multiplier applied to the amount of scroll movement.
-            middle_button_emulation = false, -- Sending LMB and RMB simultaneously will be interpreted as a middle click.
-            tap_button_map = "",             -- Sets the tap button mapping for touchpad button emulation (lrm or lmr).
-            clickfinger_behavior = false,    -- Button presses with 1, 2, or 3 fingers will be mapped to LMB, RMB, and MMB respectively.
-            tap_to_click = true,             -- Tapping on the touchpad with 1, 2, or 3 fingers will send LMB, RMB, and MMB respectively.
-            drag_lock = 0,                   -- Lifting the finger off while dragging will not drop item (0: disabled, 1: timeout, 2: sticky).
-            tap_and_drag = true,             -- Sets the tap and drag mode for the touchpad.
-            flip_x = false,                  -- Inverts the horizontal movement of the touchpad.
-            flip_y = false,                  -- Inverts the vertical movement of the touchpad.
-            drag_3fg = 0                     -- Enables three finger drag (0: disabled, 1: 3 fingers, 2: 4 fingers).
+            disable_while_typing    = true,  -- Suppress touchpad while keys are held.
+            natural_scroll          = true,  -- Invert scroll direction.
+            scroll_factor           = 1.0,   -- Touchpad scroll speed multiplier.
+            middle_button_emulation = false, -- LMB + RMB simultaneously = middle click.
+            tap_button_map          = "",    -- Tap button mapping: "" | "lrm" | "lmr".
+            clickfinger_behavior    = false, -- 1/2/3-finger click = LMB/RMB/MMB.
+            tap_to_click            = true,  -- 1/2/3-finger tap = LMB/RMB/MMB.
+            drag_lock               = 0,     -- Lift-and-continue drag: 0=off 1=timeout 2=sticky.
+            tap_and_drag            = true,  -- Enable tap-and-drag mode.
+            flip_x                  = false, -- Invert horizontal axis.
+            flip_y                  = false, -- Invert vertical axis.
+            drag_3fg                = 0,     -- Three-finger drag: 0=off 1=3 fingers 2=4 fingers.
         },
 
-        -- --- Touchdevice (Subcategory of Input) ---
+        -- --- Touch Device ---
         touchdevice = {
-            transform = -1,                  -- Transform the input from touchdevices. -1 means it’s unset.
-            output = "[[Auto]]",             -- The monitor to bind touch devices. The default is auto-detection.
-            enabled = true                   -- Whether input is enabled for touch devices.
+            transform = -1,           -- Input transform; -1 = unset.
+            output    = "[[Auto]]",   -- Monitor to bind touch device to.
+            enabled   = true,         -- Enable or disable touch input.
         },
 
-        -- --- Tablet (Subcategory of Input) ---
+        -- --- Tablet ---
         tablet = {
-            transform = -1,                  -- Transform the input from tablets. -1 means it’s unset.
-            output = "",                     -- The monitor to bind tablets. Leave empty to map across all monitors.
-            region_position = { 0, 0 },      -- Position of the mapped region in monitor layout relative to top left.
-            absolute_region_position = false,-- Whether to treat the region_position as an absolute position in monitor layout.
-            region_size = { 0, 0 },          -- Size of the mapped region.
-            relative_input = false,          -- Whether the input should be relative.
-            left_handed = false,             -- If enabled, the tablet will be rotated 180 degrees.
-            active_area_size = { 0, 0 },     -- Size of tablet’s active area in mm.
-            active_area_position = { 0, 0 }  -- Position of the active area in mm.
+            transform                = -1,          -- Input transform; -1 = unset.
+            output                   = "",           -- Monitor to bind tablet to (empty = all monitors).
+            region_position          = { 0, 0 },     -- Mapped region position relative to top-left.
+            absolute_region_position = false,        -- Treat region_position as absolute monitor coords.
+            region_size              = { 0, 0 },     -- Mapped region size (0,0 = full tablet area).
+            relative_input           = false,        -- Use relative instead of absolute input.
+            left_handed              = false,        -- Rotate tablet 180°.
+            active_area_size         = { 0, 0 },     -- Tablet active area in mm (0,0 = full).
+            active_area_position     = { 0, 0 },     -- Position of active area in mm.
         },
 
-        -- --- Virtual Keyboard (Subcategory of Input) ---
+        -- --- Virtual Keyboard ---
         virtualkeyboard = {
-            share_states = 2,                -- Unify key down states and modifier states with other keyboards.
-            release_pressed_on_close = false -- Release all pressed keys by virtual keyboard on close.
-        }
+            share_states              = 2,     -- Unify key states with other keyboards.
+            release_pressed_on_close  = false, -- Release all keys when virtual keyboard closes.
+        },
     },
+})
 
-    -- ---------------------------------------------------------------------------------------------
-    -- 2. CURSOR BEHAVIOR & RENDERING
-    -- ---------------------------------------------------------------------------------------------
+-- -------------------------------------------------------------------------------------------------
+-- CURSOR  (rendering · zoom · warping · hiding)
+-- -------------------------------------------------------------------------------------------------
+-- NOTE: cursor.zoom_disable_aa is set to true in the zoom keybinds file; do not duplicate here.
+hl.config({
     cursor = {
-        invisible = false,                   -- Don’t render cursors.
-        sync_gsettings_theme = true,         -- Sync xcursor theme with gsettings.
-        no_hardware_cursors = 2,             -- Disables hardware cursors. 0: use hw, 1: don't use hw, 2: auto.
-        no_break_fs_vrr = 2,                 -- Disables scheduling new frames on cursor movement for fullscreen apps with VRR enabled.
-        min_refresh_rate = 24,               -- Minimum refresh rate for cursor movement when no_break_fs_vrr is active.
-        hotspot_padding = 1,                 -- The padding, in logical px, between screen edges and the cursor.
-        inactive_timeout = 0.0,              -- In seconds, after how many seconds of cursor’s inactivity to hide it.
-        no_warps = false,                    -- If true, will not warp the cursor in many cases (focusing, keybinds, etc).
-        persistent_warps = false,            -- Cursor returns to its last position relative to that window, rather than to the centre.
-        warp_on_change_workspace = 0,        -- Move the cursor to the last focused window after changing the workspace.
-        warp_on_toggle_special = 0,          -- Move the cursor to the last focused window when toggling a special workspace.
-        default_monitor = "[[EMPTY]]",       -- The name of a default monitor for the cursor to be set to on startup.
-        zoom_factor = 1.0,                   -- The factor to zoom by around the cursor. Minimum 1.0.
-        zoom_rigid = false,                  -- Whether the zoom should follow the cursor rigidly or loosely.
-        zoom_detached_camera = true,         -- Detach the camera from the mouse when zoomed in, only ever moving to keep mouse in view.
-        enable_hyprcursor = true,            -- Whether to enable hyprcursor support.
-        hide_on_key_press = false,           -- Hides the cursor when you press any key until the mouse is moved.
-        hide_on_touch = true,                -- Hides the cursor when the last input was a touch input until a mouse input is done.
-        hide_on_tablet = true,               -- Hides the cursor when the last input was a tablet input until a mouse input is done.
-        use_cpu_buffer = 2,                  -- Makes HW cursors use a CPU buffer. Required on Nvidia to have HW cursors.
-        warp_back_after_non_mouse_input = false, -- Warp the cursor back to where it was after using a non-mouse input.
-        zoom_disable_aa = false              -- Disable antialiasing when zooming, which means things will be pixelated.
+        invisible                    = false,  -- Hide the cursor entirely.
+        sync_gsettings_theme         = true,   -- Sync XCursor theme with gsettings.
+        no_hardware_cursors          = 2,      -- HW cursor mode: 0=force hw 1=force sw 2=auto.
+        no_break_fs_vrr              = 2,      -- Skip frame scheduling on cursor move in FS+VRR: 0=off 1=on 2=auto.
+        min_refresh_rate             = 24,     -- Minimum refresh rate (Hz) when no_break_fs_vrr is active.
+        hotspot_padding              = 1,      -- Padding in logical px between cursor and screen edge.
+        inactive_timeout             = 0.0,    -- Hide cursor after this many seconds idle (0 = never).
+        no_warps                     = false,  -- Suppress cursor warps on focus/keybinds.
+        persistent_warps             = false,  -- Cursor returns to its last position inside the window on refocus.
+        warp_on_change_workspace     = 0,      -- Warp to last focused window on workspace switch: 0=off 1=on.
+        warp_on_toggle_special       = 0,      -- Warp to last focused window on special WS toggle: 0=off 1=on.
+        default_monitor              = "[[EMPTY]]", -- Force cursor to this monitor on startup.
+        zoom_factor                  = 1.0,    -- Cursor zoom level; minimum 1.0.
+        zoom_rigid                   = false,  -- Rigidly lock zoom to cursor (vs. loose follow).
+        zoom_detached_camera         = true,   -- Detach viewport from cursor when zoomed; camera only moves to keep cursor in view.
+        enable_hyprcursor            = true,   -- Enable hyprcursor theme support.
+        hide_on_key_press            = false,  -- Hide cursor on any keypress until mouse moves.
+        hide_on_touch                = true,   -- Hide cursor when last input was touch.
+        hide_on_tablet               = true,   -- Hide cursor when last input was tablet.
+        use_cpu_buffer               = 2,      -- Use CPU buffer for HW cursors (required on Nvidia): 0=no 1=yes 2=auto.
+        warp_back_after_non_mouse_input = false, -- Warp cursor back after keyboard/tablet input.
     },
+})
 
-    -- ---------------------------------------------------------------------------------------------
-    -- 3. GESTURE PHYSICS (Tuning)
-    -- ---------------------------------------------------------------------------------------------
+-- -------------------------------------------------------------------------------------------------
+-- GESTURE PHYSICS  (controls feel of the workspace swipe gesture, not gesture definitions)
+-- Actual gesture definitions (hl.gesture calls) live in the dedicated gestures config file.
+-- -------------------------------------------------------------------------------------------------
+hl.config({
     gestures = {
-        workspace_swipe_distance = 300,              -- In px, the distance of the touchpad gesture.
-        workspace_swipe_touch = false,               -- Enable workspace swiping from the edge of a touchscreen.
-        workspace_swipe_invert = true,               -- Invert the direction (touchpad only).
-        workspace_swipe_touch_invert = false,        -- Invert the direction (touchscreen only).
-        workspace_swipe_min_speed_to_force = 30,     -- Minimum speed in px per timepoint to force the change ignoring cancel_ratio.
-        workspace_swipe_cancel_ratio = 0.5,          -- How much the swipe has to proceed in order to commence it.
-        workspace_swipe_create_new = true,           -- Whether a swipe right on the last workspace should create a new one.
-        workspace_swipe_direction_lock = true,       -- If enabled, switching direction will be locked when you swipe past the threshold.
-        workspace_swipe_direction_lock_threshold = 10, -- In px, the distance to swipe before direction lock activates (touchpad only).
-        workspace_swipe_forever = false,             -- If enabled, swiping will not clamp at the neighboring workspaces but continue.
-        workspace_swipe_use_r = false,               -- If enabled, swiping will use the r prefix instead of the m prefix for finding workspaces.
-        close_max_timeout = 1000                     -- The timeout for a window to close when using a 1:1 gesture, in ms.
+        workspace_swipe_distance           = 300,  -- Max swipe travel distance in px.
+        workspace_swipe_invert             = true, -- Invert swipe direction.
+        workspace_swipe_min_speed_to_force = 30,   -- Min px/timepoint speed to force workspace change (0 = disable).
+        workspace_swipe_cancel_ratio       = 0.5,  -- Fraction of distance needed to commit (0.0–1.0).
+        workspace_swipe_create_new         = true, -- Create a new workspace when swiping past the last one.
+        workspace_swipe_direction_lock     = true, -- Lock swipe axis after passing direction threshold.
+        workspace_swipe_direction_lock_threshold = 10, -- Distance in px before direction lock engages.
+        workspace_swipe_forever            = false, -- Allow swiping past neighbouring workspaces without stopping.
+        workspace_swipe_use_r              = false, -- Use 'r' prefix (relative) instead of 'm' prefix for workspaces.
+        close_max_timeout                  = 1000, -- Max ms a 1:1 gesture window has to close, in ms.
     },
-
 })
