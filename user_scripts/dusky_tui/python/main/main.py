@@ -29,10 +29,9 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-# Notice: We DO NOT import the engines here. They are imported dynamically
+# Notice: We DO NOT import the engines or UI here. They are imported dynamically
 # in the router block below to prevent crashing if a dependency is missing
-# for an engine you aren't currently using.
-from python.frontend.ui import DuskyTUI, is_theme_variable
+# for an engine you aren't currently using, or if the CLI is running headlessly.
 
 # =============================================================================
 # SCHEMA SEARCH PATHS
@@ -304,9 +303,8 @@ EXAMPLES:
                 print(f"[-] Key '{target_key}' is ambiguous across multiple scopes. Please specify using 'scope.{target_key}'.")
                 sys.exit(1)
 
-            # APPLY HEADLESS THEME VARIABLE WRAPPER
-            if item.type_ == "color" and is_theme_variable(val_str):
-                val_str = f"__VAR__{val_str}"
+            # NATIVE SERIALIZATION (Handles __VAR__ wrappers and type coercion natively)
+            val_str = item.serialize(val_str)
 
             logger.info(f"Headless Injection: {target_key} -> {val_str}")
             success, msg, _ = engine.write_value(item.key, item.scope, val_str)
@@ -323,14 +321,8 @@ EXAMPLES:
                 print(f"[-] Key '{args.reset_key}' is ambiguous across multiple scopes. Please specify using 'scope.{args.reset_key}'.")
                 sys.exit(1)
 
-            # APPLY HEADLESS THEME VARIABLE WRAPPER
-            if item.default is True: val = "true"
-            elif item.default is False: val = "false"
-            elif item.default is None: val = "nil"
-            else:
-                val = str(item.default)
-                if item.type_ == "color" and is_theme_variable(val):
-                    val = f"__VAR__{val}"
+            # NATIVE SERIALIZATION 
+            val = item.serialize(item.default)
 
             logger.info(f"Headless Reset Key: {args.reset_key} -> {val}")
             success, msg, _ = engine.write_value(item.key, item.scope, val)
@@ -346,15 +338,8 @@ EXAMPLES:
             changes_to_write = []
             
             for item in unique_items:
-                # APPLY HEADLESS THEME VARIABLE WRAPPER
-                if item.default is True: val = "true"
-                elif item.default is False: val = "false"
-                elif item.default is None: val = "nil"
-                else:
-                    val = str(item.default)
-                    if item.type_ == "color" and is_theme_variable(val):
-                        val = f"__VAR__{val}"
-                
+                # NATIVE SERIALIZATION 
+                val = item.serialize(item.default)
                 changes_to_write.append((item.key, item.scope, val))
             
             # FULLY DEPLOY NATIVE BATCH ARCHITECTURE IN HEADLESS CLI
@@ -377,6 +362,10 @@ EXAMPLES:
 
     # --- 5. INTERACTIVE TUI EXECUTION ---
     logger.info("Launching TUI")
+    
+    # DEFERRED IMPORT: Prevents UI dependencies from crashing the headless CLI 
+    from python.frontend.ui import DuskyTUI
+    
     app = DuskyTUI(
         engine=engine, 
         schema=SCHEMA, 
