@@ -187,8 +187,8 @@ hl.config({
 -- -------------------------------------------------------------------------------------------------
 
 -- Workspace-level: gaps + border (border_size is only valid here, not in hl.window_rule)
-hl.workspace_rule({ workspace = "w[tv1]s[false]", gaps_out = 0, gaps_in = 0, border_size = 1 })
-hl.workspace_rule({ workspace = "f[1]s[false]",   gaps_out = 0, gaps_in = 0, border_size = 1 })
+hl.workspace_rule({ workspace = "w[tv1]s[false]", gaps_out = 8, gaps_in = 4, border_size = 1 })
+hl.workspace_rule({ workspace = "f[1]s[false]",   gaps_out = 8, gaps_in = 4, border_size = 1 })
 
 -- Single tiled window
 hl.window_rule({
@@ -199,7 +199,7 @@ hl.window_rule({
     -- matches your global decoration.rounding = 10
     -- set to 0 for sharp corners on a lone window, or keep 10 to match global
     rounding      = 10,
-
+    rounding_power = 2.5,
     -- OPACITY
     -- format: "active [override] inactive [override] fullscreen [override]"
     -- "override" makes it absolute instead of multiplicative with other rules
