@@ -74,7 +74,7 @@ from python.frontend.core_types import ConfigItem
 # 1. CORE APPLICATION ROUTING (REQUIRED)
 # =============================================================================
 ENGINE_TYPE = "lua"                        # STRICTLY: "ini" or "lua"
-TARGET_FILE = "~/.config/hypr/source/appearance.lua"   # Where the engine writes the data
+TARGET_FILE = "~/.config/hypr/edit_here/source/appearance.lua"   # Where the engine writes the data
 APP_TITLE = "Dusky Appearance"          # Displayed in the TUI border
 
 # =============================================================================
