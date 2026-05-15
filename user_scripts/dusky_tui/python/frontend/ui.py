@@ -1192,7 +1192,7 @@ class DuskyTUI(App):
         for list_idx, (orig_idx, item) in enumerate(visible_items):
             if item.group and item.group != current_group:
                 current_group = item.group
-                header_txt = Text(f" {current_group.upper()}", style=f"bold {self.theme_colors['accent']}")
+                header_txt = Text(f" {current_group.upper()}", style=f"bold {self.theme_colors['accent']}")
                 options.append(Option(header_txt, id=f"header_{tab_idx}_{orig_idx}", disabled=True))
 
             opt_id = f"item_{tab_idx}_{orig_idx}"
