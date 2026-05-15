@@ -116,7 +116,10 @@ cleanup() {
         [[ -n $path && -e $path ]] && rm -f -- "$path" 2>/dev/null || :
     done
     _TEMP_PATHS=()
-    [[ -f $LOCK_FILE ]] && rm -f -- "$LOCK_FILE" 2>/dev/null || :
+    
+    if (( IN_TUI )) && [[ -t 1 ]]; then
+        printf '\n' 2>/dev/null || :
+    fi
 }
 
 trap cleanup EXIT
@@ -546,7 +549,6 @@ handle_input_router() {
 run_tui() {
     if [[ ! -t 0 ]]; then log_err "TUI requires a terminal."; exit 1; fi
 
-    IN_TUI=1
     detect_environment
 
     local i
@@ -561,6 +563,7 @@ run_tui() {
         exit 1
     fi
     
+    IN_TUI=1
     printf '%s%s%s%s%s' "$ALT_SCREEN_ON" "$MOUSE_ON" "$CURSOR_HIDE" "$CLR_SCREEN" "$CURSOR_HOME"
 
     trap 'RESIZE_PENDING=1' WINCH
@@ -568,15 +571,17 @@ run_tui() {
     # UI Loop Armor: Drop strict mode to prevent read-timeouts from ghost-crashing
     set +Eeu
 
+    draw_ui || true
     local key
     while true; do
-        draw_ui || true
+        if (( RESIZE_PENDING )); then
+            RESIZE_PENDING=0
+            draw_ui || true
+        fi
         
         if IFS= read -rsn1 -t "$READ_LOOP_TIMEOUT" key < /dev/tty; then
-            (( RESIZE_PENDING )) && RESIZE_PENDING=0
             handle_input_router "$key"
-        else
-            (( RESIZE_PENDING )) && RESIZE_PENDING=0
+            draw_ui || true
         fi
     done
 }

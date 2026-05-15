@@ -1,22 +1,11 @@
 #!/usr/bin/env bash
 # =============================================================================
-# ELITE HYPRLAND TERMINAL SWITCHER - PLATINUM EDITION (v6.6)
+# ELITE HYPRLAND TERMINAL SWITCHER - PLATINUM EDITION (v6.7)
 # =============================================================================
 #
-# BASED ON: Dusky TUI Engine v3.9.6 (Template Aligned)
+# BASED ON: Dusky TUI Engine v5.9 (Template Aligned)
 # TARGET:   Arch Linux / Hyprland / UWSM / Wayland
 #
-# =============================================================================
-# HOW TO ADD NEW TERMINALS
-# =============================================================================
-# 1. Locate the 'TERM_CATALOG' array in the USER CONFIGURATION section.
-# 2. Add a new line inside the parentheses following this exact syntax:
-#    "key|type|desktop_file|display_name"
-#
-#    - KEY: The string that will be written to $terminal in your config.
-#    - TYPE: Kept for catalog consistency (set to '0').
-#    - DESKTOP_FILE: The filename for potential future MIME/app matching.
-#    - DISPLAY_NAME: The friendly name shown in the TUI menu.
 # =============================================================================
 
 set -euo pipefail
@@ -43,7 +32,7 @@ declare -r STATE_FILE="${HOME}/.config/dusky/settings/terminal_switch"
 
 # UI Configuration (Template Aligned)
 declare -r APP_TITLE="Dusky Terminal Manager"
-declare -r APP_VERSION="v6.6 (Omni-Environment)"
+declare -r APP_VERSION="v6.7 (Omni-Environment)"
 declare -ri BOX_INNER_WIDTH=60
 declare -ri MAX_DISPLAY_ROWS=10
 declare -ri ITEM_PADDING=38  
@@ -57,7 +46,7 @@ declare -ri ITEM_START_ROW=$(( HEADER_ROWS + 1 ))
 
 # --- Pre-computed Constants ---
 declare _h_line_buf
-printf -v _h_line_buf '%*s' "$BOX_INNER_WIDTH" ''
+printf -v _h_line_buf '%*s' "$BOX_INNER_WIDTH" '' || true
 declare -r H_LINE="${_h_line_buf// /─}"
 unset _h_line_buf
 
@@ -77,23 +66,32 @@ declare -r CLR_SCREEN=$'\033[2J'
 declare -r CURSOR_HOME=$'\033[H'
 declare -r CURSOR_HIDE=$'\033[?25l'
 declare -r CURSOR_SHOW=$'\033[?25h'
+declare -r ALT_SCREEN_ON=$'\033[?1049h'
+declare -r ALT_SCREEN_OFF=$'\033[?1049l'
 declare -r MOUSE_ON=$'\033[?1000h\033[?1002h\033[?1006h'
 declare -r MOUSE_OFF=$'\033[?1000l\033[?1002l\033[?1006l'
 
 declare -r ESC_READ_TIMEOUT=0.10
+declare -r READ_LOOP_TIMEOUT=0.25
 
 # --- State Management ---
 declare -i SELECTED_ROW=0
 declare -i SCROLL_OFFSET=0
 declare -i IN_TUI=0
+declare -i TUI_STARTED=0
 declare CURRENT_TERM_KEY="unknown"
 declare STATUS_MSG=""
 declare ORIGINAL_STTY=""
 
+declare -i TERM_ROWS=0 TERM_COLS=0
+declare -ri MIN_TERM_COLS=$(( BOX_INNER_WIDTH + 2 ))
+declare -ri MIN_TERM_ROWS=$(( HEADER_ROWS + MAX_DISPLAY_ROWS + 6 ))
+declare -gi RESIZE_PENDING=0
+
 # --- System Helpers ---
 
 log_info() { printf '%s[INFO]%s %s\n' "$C_CYAN" "$C_RESET" "$1"; }
-log_err()  { printf '%s[ERROR]%s %s\n' "$C_RED" "$C_RESET" "$1" >&2; }
+log_err()  { printf '%s[ERROR]%s %s\n' "$C_RED" "$C_RESET" "$1" >&2 || true; }
 
 log_action() {
     local is_error="${1:-0}"
@@ -110,15 +108,27 @@ log_action() {
 }
 
 cleanup() {
-    printf '%s%s%s' "$MOUSE_OFF" "$CURSOR_SHOW" "$C_RESET" 2>/dev/null || :
-    if [[ -n "${ORIGINAL_STTY:-}" ]]; then
-        stty "$ORIGINAL_STTY" 2>/dev/null || :
+    if [[ -t 1 ]]; then
+        if (( TUI_STARTED )); then
+            printf '%s%s%s%s' "$MOUSE_OFF" "$CURSOR_SHOW" "$C_RESET" "$ALT_SCREEN_OFF" 2>/dev/null || :
+        elif [[ -n "${ORIGINAL_STTY:-}" ]]; then
+            printf '%s%s%s' "$MOUSE_OFF" "$CURSOR_SHOW" "$C_RESET" 2>/dev/null || :
+        fi
     fi
-    printf '\n' 2>/dev/null || :
+
+    if [[ -n "${ORIGINAL_STTY:-}" ]]; then
+        stty "$ORIGINAL_STTY" < /dev/tty 2>/dev/null || :
+    fi
+
+    if (( TUI_STARTED )) && [[ -t 1 ]]; then
+        printf '\n' 2>/dev/null || :
+    fi
 }
 
 trap cleanup EXIT
+trap 'exit 129' HUP
 trap 'exit 130' INT
+trap 'exit 131' QUIT
 trap 'exit 143' TERM
 
 # --- Core Logic: Atomic Writes & Switcher ---
@@ -133,6 +143,12 @@ atomic_write() {
     mkdir -p "$dir_name"
     
     tmp_file=$(mktemp "${target}.tmp.XXXXXXXXXX") || return 1
+
+    # Strict Permissions Preservation (Template Aligned)
+    if [[ -e "$target" ]]; then
+        chmod --reference="$target" -- "$tmp_file" 2>/dev/null || :
+        chown --reference="$target" -- "$tmp_file" 2>/dev/null || :
+    fi
     
     if ! { printf '%s\n' "$content" > "$tmp_file" && sync "$tmp_file" && mv -f "$tmp_file" "$target"; }; then
         rm -f "$tmp_file"
@@ -254,6 +270,29 @@ detect_environment() {
 
 # --- UI Rendering Engine ---
 
+update_terminal_size() {
+    local size
+    if size=$(stty size < /dev/tty 2>/dev/null); then
+        TERM_ROWS=${size%% *}
+        TERM_COLS=${size##* }
+    else
+        TERM_ROWS=0
+        TERM_COLS=0
+    fi
+}
+
+terminal_size_ok() {
+    (( TERM_COLS >= MIN_TERM_COLS && TERM_ROWS >= MIN_TERM_ROWS ))
+}
+
+draw_small_terminal_notice() {
+    printf '%s%s' "$CURSOR_HOME" "$CLR_SCREEN" || true
+    printf '%sTerminal too small%s\n' "$C_RED" "$C_RESET" || true
+    printf '%sNeed at least:%s %d cols × %d rows\n' "$C_YELLOW" "$C_RESET" "$MIN_TERM_COLS" "$MIN_TERM_ROWS" || true
+    printf '%sCurrent size:%s %d cols × %d rows\n' "$C_WHITE" "$C_RESET" "$TERM_COLS" "$TERM_ROWS" || true
+    printf '%sResize the terminal, then continue. Press q to quit.%s%s' "$C_CYAN" "$C_RESET" "$CLR_EOS" || true
+}
+
 strip_ansi() {
     local v="$1"
     v="${v//$'\033'\[*([0-9;:?<=>])@([@A-Z\[\\\]^_\`a-z\{|\}~])/}"
@@ -311,6 +350,9 @@ render_scroll_indicator() {
 }
 
 draw_ui() {
+    update_terminal_size
+    if ! terminal_size_ok; then draw_small_terminal_notice; return; fi
+
     local buf="" pad_buf=""
     local -i vis_len left_pad right_pad
     local -i count=${#TERM_CATALOG[@]}
@@ -385,7 +427,7 @@ draw_ui() {
     buf+=$'\n'"${C_CYAN} [↑/↓ j/k] Select  [Enter] Apply  [q] Quit${C_RESET}${CLR_EOL}"$'\n'
     buf+="${C_CYAN} File: ${C_WHITE}split_config${C_RESET}${CLR_EOL}${CLR_EOS}"
 
-    printf '%s' "$buf"
+    printf '%s' "$buf" || true
 }
 
 # --- Input Handling ---
@@ -457,10 +499,10 @@ read_escape_seq() {
     local -n _esc_out=$1
     _esc_out=""
     local char
-    if ! IFS= read -rsn1 -t "$ESC_READ_TIMEOUT" char; then return 1; fi
+    if ! IFS= read -rsn1 -t "$ESC_READ_TIMEOUT" char < /dev/tty; then return 1; fi
     _esc_out+="$char"
     if [[ "$char" == '[' || "$char" == 'O' ]]; then
-        while IFS= read -rsn1 -t "$ESC_READ_TIMEOUT" char; do
+        while IFS= read -rsn1 -t "$ESC_READ_TIMEOUT" char < /dev/tty; do
             _esc_out+="$char"
             if [[ "$char" =~ [a-zA-Z~] ]]; then break; fi
         done
@@ -509,9 +551,10 @@ handle_input() {
 # --- Main ---
 
 run_tui() {
-    if [[ ! -t 0 ]]; then log_err "TUI requires a terminal."; exit 1; fi
+    if [[ ! -t 0 || ! -t 1 ]]; then log_err "TUI requires interactive stdin/stdout."; exit 1; fi
 
     IN_TUI=1
+    TUI_STARTED=1
     detect_environment
 
     local i
@@ -523,17 +566,31 @@ run_tui() {
         fi
     done
 
-    ORIGINAL_STTY=$(stty -g 2>/dev/null) || ORIGINAL_STTY=""
-    stty -icanon -echo min 1 time 0 2>/dev/null
-    printf '%s%s%s%s' "$MOUSE_ON" "$CURSOR_HIDE" "$CLR_SCREEN" "$CURSOR_HOME"
+    ORIGINAL_STTY=$(stty -g < /dev/tty 2>/dev/null) || ORIGINAL_STTY=""
+    # Added -ixon to disable flow control (prevents Ctrl+S freezes)
+    if ! stty -icanon -echo -ixon min 1 time 0 < /dev/tty 2>/dev/null; then 
+        log_err "Failed to configure terminal raw input."
+        exit 1
+    fi
 
-    trap 'draw_ui' WINCH
+    printf '%s%s%s%s%s' "$ALT_SCREEN_ON" "$MOUSE_ON" "$CURSOR_HIDE" "$CLR_SCREEN" "$CURSOR_HOME"
+
+    # UI Loop Armor
+    set +Eeu
+    trap 'RESIZE_PENDING=1' WINCH
 
     local key
+    draw_ui || true
     while true; do
-        draw_ui
-        if ! IFS= read -rsn1 key; then continue; fi
-        handle_input "$key"
+        if (( RESIZE_PENDING )); then
+            RESIZE_PENDING=0
+            draw_ui || true
+        fi
+        
+        if IFS= read -rsn1 -t "$READ_LOOP_TIMEOUT" key < /dev/tty; then
+            handle_input "$key"
+            draw_ui || true
+        fi
     done
 }
 
