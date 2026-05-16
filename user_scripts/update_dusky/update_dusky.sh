@@ -163,6 +163,7 @@ declare -r UPSTREAM_TRACKING_REF="refs/dusky-updater/upstream/${BRANCH}"
 declare -A CUSTOM_SCRIPT_PATHS=(
     ["warp_toggle.sh"]="user_scripts/networking/warp_toggle.sh"
     ["fix_theme_dir.sh"]="user_scripts/misc_extra/fix_theme_dir.sh"
+    ["backup_hyprlang_files.sh"]="user_scripts/misc_extra/backup_hyprlang_files.sh"
     ["pacman_packages.sh"]="user_scripts/misc_extra/pacman_packages.sh"
     ["paru_packages.sh"]="user_scripts/misc_extra/paru_packages.sh"
     ["copy_service_files.sh"]="user_scripts/misc_extra/copy_service_files.sh"
@@ -201,6 +202,7 @@ declare -ra UPDATE_SEQUENCE=(
 
 #================= CUSTOM=====================
     "U | dusky_commands_before.sh"
+    "U | backup_hyprlang_files.sh"
 #================= Scripts =====================
 
     "U | 005_hypr_custom_config_setup.sh"
