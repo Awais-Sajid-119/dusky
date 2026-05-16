@@ -329,7 +329,7 @@ declare -ra UPDATE_SEQUENCE=(
     "U | ignore-fail | theme_ctl.sh refresh"
     "U | ignore-fail | update_counter.sh"
     "U | dusky_commands_after.sh"
-    "U | system_update.sh"
+    "U | system_update.sh --pacman"
     "U | reboot_post_lua_update.sh"
 )
 
