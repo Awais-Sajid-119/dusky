@@ -170,9 +170,7 @@ declare -A CUSTOM_SCRIPT_PATHS=(
     ["update_checker.sh"]="user_scripts/update_dusky/update_checker/update_checker.sh"
     ["cc_restart.sh"]="user_scripts/dusky_system/reload_cc/cc_restart.sh"
     ["dusky_service_manager.sh"]="user_scripts/services/dusky_service_manager.sh"
-    ["append_defaults_keybinds_edit_here.sh"]="user_scripts/misc_extra/append_defaults_keybinds_edit_here.sh"
-    ["append_sourcing_line_workspace.sh"]="user_scripts/misc_extra/delete_in_3_weeks/append_sourcing_line_workspace.sh"
-    ["append_gaps_line_in_appearance.sh"]="user_scripts/misc_extra/delete_in_3_weeks/append_gaps_line_in_appearance.sh"
+#    ["append_defaults_keybinds_edit_here.sh"]="user_scripts/misc_extra/append_defaults_keybinds_edit_here.sh"
     ["dusky_commands_before.sh"]="user_scripts/misc_extra/dusky_commands_before.sh"
     ["dusky_commands_after.sh"]="user_scripts/misc_extra/dusky_commands_after.sh"
     ["rofi_wallpaper_selctor.sh"]="user_scripts/rofi/rofi_wallpaper_selctor.sh"
@@ -201,8 +199,8 @@ declare -A CUSTOM_SCRIPT_PATHS=(
 declare -ra UPDATE_SEQUENCE=(
 
 #================= CUSTOM=====================
-    "U | dusky_commands_before.sh"
     "U | backup_hyprlang_files.sh"
+    "U | dusky_commands_before.sh"
 #================= Scripts =====================
 
     "U | 005_hypr_custom_config_setup.sh"
@@ -321,9 +319,7 @@ declare -ra UPDATE_SEQUENCE=(
     "U | update_checker.sh --num"
     "U | cc_restart.sh --quiet"
     "S | dusky_service_manager.sh"
-    "U | append_defaults_keybinds_edit_here.sh"
-    "U | append_sourcing_line_workspace.sh"
-    "U | append_gaps_line_in_appearance.sh"
+#    "U | append_defaults_keybinds_edit_here.sh"
     "U | ignore-fail | dusky_matugen_config_tui.sh --smart"
 #    "U | ignore-fail | dusky_firefox_tui.sh --sync --all"
     "U | ignore-fail | hypr_anim.sh --current"
