@@ -1710,7 +1710,7 @@ pages:
                     style: suggested
                     on_press:
                       type: exec
-                      command: kitty --class dusky_input.sh --hold sh -c "$HOME/user_scripts/hypr/dusky_input.sh"
+                      command: foot --app-id=dusky_tui /home/dusk/user_scripts/dusky_tui/python/main/main.py /home/dusk/user_scripts/hypr/input/tui_input.py
 
     - type: navigation
       properties:
@@ -2187,7 +2187,7 @@ pages:
       on_press:
         type: exec
         command: kitty --class dusky_keybinds.sh --hold
-          sh -c "$HOME/user_scripts/hypr/dusky_keybinds.sh"
+          sh -c "$HOME/user_scripts/hypr/input/dusky_keybinds.py"
         terminal: false
 
 - id: tools_and_ai

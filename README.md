@@ -32,7 +32,7 @@ here's what it looks like.
 
 ## 🎨 Theming & Acknowledgments
 
-A massive shoutout to [@Ubaidullah-Web-Dev](https://github.com/Ubaidullah-Web-Dev) for his amazing project that enables website theming on gecko based browsers like firefox! This configuration wouldn't be the possible without it.
+A massive shoutout to [@Ubaidullah-Web-Dev](https://github.com/Ubaidullah-Web-Dev) for his amazing project that enables website theming on gecko based browsers like firefox! This configuration wouldn't have been possible without him.
 
 ⭐ **Support the Developer:** If you like the look of this setup, please head over and drop a star on his repository:
 👉 [MatugenFox on GitHub](https://github.com/Ubaidullah-Web-Dev/MatugenFox)
