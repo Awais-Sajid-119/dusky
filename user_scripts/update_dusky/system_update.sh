@@ -128,17 +128,17 @@ fi
 log_info "Initiating system update sequence..."
 
 if (( OPT_PACMAN == 1 && OPT_AUR == 1 )); then
-    log_info "Executing unified system and AUR update using: $AUR_HELPER"
-    "$AUR_HELPER" -Syu
+    log_info "Executing unified system and AUR update autonomously using: $AUR_HELPER"
+    "$AUR_HELPER" -Syu --noconfirm
 
 elif (( OPT_AUR == 1 )); then
-    log_info "Executing strictly AUR update using: $AUR_HELPER"
+    log_info "Executing strictly AUR update autonomously using: $AUR_HELPER"
     # -Sua restricts targets explicitly to the AUR
-    "$AUR_HELPER" -Sua
+    "$AUR_HELPER" -Sua --noconfirm
 
 elif (( OPT_PACMAN == 1 )); then
-    log_info "Executing strictly core system update using: pacman"
-    sudo pacman -Syu
+    log_info "Executing strictly core system update autonomously using: pacman"
+    sudo pacman -Syu --noconfirm
 fi
 
 log_success "Update sequence completed successfully."
