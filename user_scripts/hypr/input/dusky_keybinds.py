@@ -5,6 +5,7 @@
 #              - Lexically perfect parser (supports [=[ Lua long brackets ]=])
 #              - Safely modifies dotfiles (resolves symlinks before atomic write)
 #              - Surgical AST deletion (no global string replacement bugs)
+#              - Native hl.unbind() generation to prevent zombie source keys
 #              - Complete submap awareness
 #              - True concurrency locking (no race conditions)
 #              - XDG Base Directory Specification compliant
@@ -69,7 +70,7 @@ EMPTY_TEMPLATE = 'hl.bind("SUPER + ", hl.dsp.exec_cmd(""), { description = "" })
 
 @dataclass
 class Bind:
-    """Represents one parsed hl.bind() call."""
+    """Represents one parsed hl.bind() or hl.unbind() call."""
     key_str:     str   # Verbatim key string (resolved)
     norm_mods:   str   # Sorted, lowercase modifier string
     norm_key:    str   # Lowercase key name
@@ -81,6 +82,7 @@ class Bind:
     origin:      str   # "SRC" or "CUST"
     char_start:  int   # Character offset in file text
     char_end:    int   # Character offset (exclusive) after closing ')'
+    is_unbind:   bool = False # True if this is an explicit hl.unbind() call
 
 # ==============================================================================
 # System & Locking Utilities
@@ -104,7 +106,6 @@ def cleanup() -> None:
         try:
             fcntl.flock(_lock_fh, fcntl.LOCK_UN)
             _lock_fh.close()
-            # We do NOT unlink the file to prevent race conditions.
         except Exception:
             pass
         _lock_fh = None
@@ -120,7 +121,6 @@ def acquire_lock() -> None:
     global _lock_fh
     LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
     try:
-        # Open safely without blind truncation to avoid permission crashes
         fd = os.open(LOCK_FILE, os.O_CREAT | os.O_RDWR, 0o600)
         _lock_fh = open(fd, 'a')
         fcntl.flock(_lock_fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -130,7 +130,6 @@ def acquire_lock() -> None:
         die(f'Permission denied accessing lock file. Was it previously created by root? ({LOCK_FILE})')
 
 def atomic_write(content: str, path: Path) -> None:
-    """Write content to path atomically, correctly resolving symlinks for dotfiles."""
     real = path.resolve()
     real.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=real.parent, prefix='.keybinds_write_')
@@ -168,7 +167,6 @@ def reload_hyprland() -> None:
 # ==============================================================================
 
 def get_long_bracket_end(code: str, start_idx: int) -> int:
-    """Returns the end index of a Lua long bracket [=[ ... ]=], or -1."""
     q = start_idx + 1
     while q < len(code) and code[q] == '=':
         q += 1
@@ -181,7 +179,6 @@ def get_long_bracket_end(code: str, start_idx: int) -> int:
     return -1
 
 def build_active_code_mask(code: str) -> list[bool]:
-    """Byte-by-byte pass creating a boolean mask to safely ignore comments & strings."""
     mask = [True] * len(code)
     i = 0
     n = len(code)
@@ -228,7 +225,6 @@ def build_active_code_mask(code: str) -> list[bool]:
     return mask
 
 def find_balanced_end(text: str, open_pos: int, mask: list[bool]) -> int:
-    """Finds the matching closing parenthesis, ignoring parens in strings/comments."""
     depth = 0
     for i in range(open_pos, len(text)):
         if not mask[i]: continue
@@ -241,7 +237,6 @@ def find_balanced_end(text: str, open_pos: int, mask: list[bool]) -> int:
     return len(text)
 
 def split_top_args(text: str, start_idx: int, end_idx: int, mask: list[bool]) -> list[str]:
-    """Splits arguments by commas at depth 0, safely respecting the lexical mask."""
     args = []
     buf = []
     depth = 0
@@ -266,7 +261,6 @@ def split_top_args(text: str, start_idx: int, end_idx: int, mask: list[bool]) ->
     return args
 
 def strip_quotes(arg: str) -> str:
-    """Removes standard quotes or Lua long brackets from a string."""
     arg = arg.strip()
     if arg.startswith('"') and arg.endswith('"'): return arg[1:-1]
     if arg.startswith("'") and arg.endswith("'"): return arg[1:-1]
@@ -275,7 +269,6 @@ def strip_quotes(arg: str) -> str:
     return arg
 
 def extract_local_vars(text: str, mask: list[bool]) -> dict[str, str]:
-    """Pulls simple local assignments safely respecting the active code mask."""
     result = {}
     for m in re.finditer(r'local\s+(\w+)\s*=\s*"([^"]*)"', text):
         if mask[m.start()]: result[m.group(1)] = m.group(2)
@@ -284,7 +277,6 @@ def extract_local_vars(text: str, mask: list[bool]) -> dict[str, str]:
     return result
 
 def resolve_key_arg(arg: str, local_vars: dict[str, str]) -> str:
-    """Evaluates Lua key expressions reliably, maintaining explicit punctuation."""
     if '..' in arg:
         parts = [p.strip() for p in arg.split('..')]
         pieces = []
@@ -294,7 +286,7 @@ def resolve_key_arg(arg: str, local_vars: dict[str, str]) -> str:
             elif part in local_vars:
                 pieces.append(local_vars[part])
             else:
-                pieces.append('SUPER') # Default fallback if variable is undefined
+                pieces.append('SUPER')
         return ''.join(pieces)
     if not (arg.startswith('"') or arg.startswith("'") or arg.startswith('[')):
         return local_vars.get(arg, arg)
@@ -314,23 +306,19 @@ _MOD_ALIASES = {
 }
 
 def normalize_key(key_str: str) -> tuple[str, str]:
-    """Correctly normalizes keys WITHOUT stripping punctuation, handling literal '+' keys safely."""
     if '+' not in key_str:
         return '', key_str.strip().lower()
     
     parts = key_str.split('+')
     clean_parts = [p.strip().lower() for p in parts]
     
-    # Safely identify if the targeted bind was genuinely a literal '+' character
     if len(clean_parts) >= 2 and clean_parts[-1] == '':
         clean_parts = clean_parts[:-2] + ['+']
         
     clean_parts = [_MOD_ALIASES.get(p, p) for p in clean_parts if p]
     
-    if not clean_parts:
-        return '', ''
-    if len(clean_parts) == 1:
-        return '', clean_parts[0]
+    if not clean_parts: return '', ''
+    if len(clean_parts) == 1: return '', clean_parts[0]
         
     mods = sorted(set(clean_parts[:-1]))
     key = clean_parts[-1]
@@ -355,26 +343,33 @@ def find_submap_regions(text: str, mask: list[bool]) -> list[tuple[int, int, str
     return regions
 
 def parse_lua_file_content(text: str, origin: str) -> list[Bind]:
-    """Transforms raw text into tracked Bind dataclass objects."""
     mask = build_active_code_mask(text)
     submap_regions = find_submap_regions(text, mask)
     local_vars = extract_local_vars(text, mask)
     binds = []
 
-    for m in re.finditer(r'hl\.bind\s*\(', text):
+    for m in re.finditer(r'hl\.(bind|unbind)\s*\(', text):
         start = m.start()
         if not mask[start]: continue
 
+        is_unbind = (m.group(1) == 'unbind')
         paren_pos = text.find('(', start)
         end = find_balanced_end(text, paren_pos, mask)
         
         args = split_top_args(text, paren_pos + 1, end - 1, mask)
-        if len(args) < 2: continue
+        if not args: continue
 
         key_arg = resolve_key_arg(args[0], local_vars)
-        dispatcher = args[1].strip()
-        options = args[2].strip() if len(args) > 2 else ''
-        description = extract_description(options)
+        
+        if is_unbind:
+            dispatcher = "UNBIND"
+            options = ""
+            description = "Source Bind Disabled"
+        else:
+            if len(args) < 2: continue
+            dispatcher = args[1].strip()
+            options = args[2].strip() if len(args) > 2 else ''
+            description = extract_description(options)
         
         norm_mods, norm_key = normalize_key(key_arg)
 
@@ -395,12 +390,12 @@ def parse_lua_file_content(text: str, origin: str) -> list[Bind]:
             raw_call=text[start:end],
             origin=origin,
             char_start=start,
-            char_end=end
+            char_end=end,
+            is_unbind=is_unbind
         ))
     return binds
 
 def _preceding_comment_start(text: str, block_start: int) -> int:
-    """Finds the timestamp comment immediately preceding a bind."""
     line_start = text.rfind('\n', 0, block_start) + 1
     if line_start > 0:
         prev_nl = text.rfind('\n', 0, line_start - 1)
@@ -411,10 +406,6 @@ def _preceding_comment_start(text: str, block_start: int) -> int:
     return line_start
 
 def filter_out_bind_from_text(text: str, norm_mods: str, norm_key: str, submap: str) -> str:
-    """
-    Surgically slices out specific binds by their exact char index to prevent global
-    deletion bugs. GUARANTEES the containing submap block is NEVER deleted.
-    """
     binds = parse_lua_file_content(text, "CUST")
     to_remove = []
     
@@ -438,12 +429,15 @@ def filter_out_bind_from_text(text: str, norm_mods: str, norm_key: str, submap: 
 # ==============================================================================
 
 def format_display(b: Bind) -> str:
-    """Generates the clean, two-column front page UI safely handling newlines."""
-    tag = f'{GREEN}[CUST]{RESET}' if b.origin == 'CUST' else f'{BLUE}[SRC] {RESET}'
     submap_pfx = f'{PURPLE}[{b.submap}]{RESET} ' if b.submap else ''
-    
-    # Strip potential newlines to prevent FZF alignment crashes
     ui_key = b.key_str[:32].ljust(32).replace('\n', ' ')
+
+    if b.is_unbind:
+        tag = f'{RED}[UNB]{RESET}'
+        ui_desc = f'{DIM}Source Bind Disabled (Delete this to restore){RESET}'
+        return f'{tag}  {submap_pfx}{RED}{ui_key}{RESET} {GREY}│{RESET} {ui_desc}'
+
+    tag = f'{GREEN}[CUST]{RESET}' if b.origin == 'CUST' else f'{BLUE}[SRC] {RESET}'
     ui_desc = (b.description if b.description else "No Description").replace('\n', ' ')
     
     return f'{tag}  {submap_pfx}{BOLD}{ui_key}{RESET} {GREY}│{RESET} {ui_desc}'
@@ -452,11 +446,9 @@ def generate_bind_rows(source_binds: list[Bind], custom_binds: list[Bind]) -> tu
     custom_ovr = {(b.norm_mods, b.norm_key, b.submap) for b in custom_binds}
     displayed = []
     
-    # Custom overrides sorted to the top
     for b in sorted(custom_binds, key=lambda x: f'{x.submap}|{x.norm_mods}|{x.norm_key}'):
         displayed.append(b)
         
-    # Source binds hidden if overridden
     for b in sorted(source_binds, key=lambda x: f'{x.submap}|{x.norm_mods}|{x.norm_key}'):
         if (b.norm_mods, b.norm_key, b.submap) not in custom_ovr:
             displayed.append(b)
@@ -483,7 +475,6 @@ def rlinput(prompt: str, prefill: str = '') -> str:
         finally:
             readline.set_pre_input_hook(None)
     else:
-        # Fallback for systems without readline
         print(f"{DIM}(Prefill not supported on this terminal. Original: {prefill}){RESET}")
         return input(prompt)
 
@@ -537,7 +528,6 @@ def edit_loop(bind: Optional[Bind], source_binds: list[Bind], custom_binds: list
         if not user_line or user_line == EMPTY_TEMPLATE:
             continue
 
-        # Parse & Validate User Input
         temp_binds = parse_lua_file_content(user_line, "TMP")
         if not temp_binds:
             leave_alt_screen()
@@ -570,7 +560,6 @@ def edit_loop(bind: Optional[Bind], source_binds: list[Bind], custom_binds: list
         else:
             print(f'{GREEN}None{RESET}')
 
-        # Confirm & Save
         print(f'\n{CYAN}┌──────────────────────────────────────────────┐{RESET}')
         print(f'{CYAN}│              CONFIRM CHANGES                 │{RESET}')
         print(f'{CYAN}└──────────────────────────────────────────────┘{RESET}')
@@ -591,8 +580,25 @@ def edit_loop(bind: Optional[Bind], source_binds: list[Bind], custom_binds: list
         except FileNotFoundError:
             text = ''
 
+        # Scrub the old custom bind if we are overwriting it
         if orig_mods or orig_key:
             text = filter_out_bind_from_text(text, orig_mods, orig_key, bind_submap)
+
+        # GHOST PREVENTION: If the key changed, we MUST check if we exposed a source bind.
+        # If we did, we must leave an hl.unbind() behind so it doesn't resurrect.
+        key_changed = (orig_mods != new_mods) or (orig_key != new_key)
+        
+        if key_changed and bind:
+            src_conflict_old = next((b for b in source_binds if b.norm_mods == orig_mods and b.norm_key == orig_key and b.submap == bind_submap), None)
+            if src_conflict_old:
+                unbind_stmt = f'hl.unbind("{src_conflict_old.key_str}")'
+                cmt = f'-- [{timestamp}] UNBIND (Moved away from SRC key)'
+                if bind_submap:
+                    unbind_block = f'\n{cmt}\nhl.define_submap("{bind_submap}", function()\n    {unbind_stmt}\nend)\n'
+                else:
+                    unbind_block = f'\n{cmt}\n{unbind_stmt}\n'
+                text = text.rstrip('\n') + '\n' + unbind_block
+
         if conflict_cust:
             text = filter_out_bind_from_text(text, new_mods, new_key, bind_submap)
 
@@ -610,19 +616,23 @@ def edit_loop(bind: Optional[Bind], source_binds: list[Bind], custom_binds: list
         return True
 
 def delete_flow(bind: Bind) -> bool:
-    if bind.origin == 'SRC':
-        print(f'\n{YELLOW}[NOTE]{RESET} Source binds cannot be deleted by this tool.')
-        print(f'  Hyprland 0.55 Lua has no unbind() API. Override it by creating a custom bind on the same key.')
-        input('Press Enter to continue...')
-        return False
-
     raw_preview = bind.raw_call.replace('\n', ' ')[:80]
     print(f'\n{CYAN}┌──────────────────────────────────────────────┐{RESET}')
     print(f'{CYAN}│              CONFIRM CHANGES                 │{RESET}')
     print(f'{CYAN}└──────────────────────────────────────────────┘{RESET}')
     if bind.submap: print(f'  {PURPLE}Submap:{RESET} {bind.submap}')
-    print(f'\n  {BOLD}Action:{RESET}  DELETE FROM CUSTOM FILE')
-    print(f'  {RED}Target:{RESET}  {raw_preview}')
+    
+    if bind.origin == 'SRC':
+        print(f'\n  {BOLD}Action:{RESET}  DISABLE SOURCE BIND')
+        print(f'  {RED}Target:{RESET}  {raw_preview}')
+        print(f'  {DIM}(This will dynamically append hl.unbind() to your custom config){RESET}')
+    else:
+        if bind.is_unbind:
+            print(f'\n  {BOLD}Action:{RESET}  RESTORE SOURCE BIND')
+            print(f'  {RED}Target:{RESET}  {raw_preview}')
+        else:
+            print(f'\n  {BOLD}Action:{RESET}  DELETE FROM CUSTOM FILE')
+            print(f'  {RED}Target:{RESET}  {raw_preview}')
     
     print(f'\n{YELLOW}[y] Confirm  [n] Go Back{RESET}')
     if not input('Select > ').strip().lower().startswith('y'): return False
@@ -632,10 +642,29 @@ def delete_flow(bind: Bind) -> bool:
     except FileNotFoundError:
         text = ''
 
-    new_text = filter_out_bind_from_text(text, bind.norm_mods, bind.norm_key, bind.submap)
-    atomic_write(new_text, CUSTOM_LUA)
+    if bind.origin == 'SRC':
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
+        
+        # Ensure we clear out any existing CUST binds on this exact key first to prevent conflicts
+        text = filter_out_bind_from_text(text, bind.norm_mods, bind.norm_key, bind.submap)
+        
+        comment = f'-- [{timestamp}] UNBIND SRC'
+        if bind.submap:
+            new_block = f'\n{comment}\nhl.define_submap("{bind.submap}", function()\n    hl.unbind("{bind.key_str}")\nend)\n'
+        else:
+            new_block = f'\n{comment}\nhl.unbind("{bind.key_str}")\n'
 
-    print(f'\n{GREEN}[SUCCESS]{RESET} Keybind removed.')
+        text = text.rstrip('\n') + '\n' + new_block
+        atomic_write(text, CUSTOM_LUA)
+        print(f'\n{GREEN}[SUCCESS]{RESET} Source bind disabled.')
+    else:
+        new_text = filter_out_bind_from_text(text, bind.norm_mods, bind.norm_key, bind.submap)
+        atomic_write(new_text, CUSTOM_LUA)
+        if bind.is_unbind:
+            print(f'\n{GREEN}[SUCCESS]{RESET} Source bind restored.')
+        else:
+            print(f'\n{GREEN}[SUCCESS]{RESET} Keybind removed.')
+
     reload_hyprland()
     return True
 
@@ -671,14 +700,13 @@ def main() -> None:
         custom_binds = parse_lua_file_content(cust_text, 'CUST')
 
         rows, displayed = generate_bind_rows(source_binds, custom_binds)
-        fzf_header = '  SELECT KEYBIND  │  SRC = Default  │  CUST = Your Override\n  Type to search · Enter = select · Esc = quit'
+        fzf_header = '  SELECT KEYBIND  │  SRC = Default  │  CUST = Your Override  │  [UNB] = Disabled Source Bind\n  Type to search · Enter = select · Esc = quit'
 
         if VIEW_ONLY:
             res = subprocess.run(['fzf', '--ansi', '--delimiter=\t', '--with-nth=1', f'--header=[VIEW MODE] {fzf_header}', '--info=inline', '--layout=reverse', '--border', '--prompt=Search > '], input='\n'.join(rows), capture_output=True, text=True)
             if res.returncode != 0: sys.exit(0)
             
             try:
-                # rsplit on tab safely parses descriptions with literal tabs
                 idx = int(res.stdout.strip().rsplit('\t', 1)[-1]) if res.stdout.strip() else -1
             except (ValueError, IndexError):
                 idx = -1
@@ -698,7 +726,6 @@ def main() -> None:
         if not selected: continue
 
         try:
-            # rsplit safely drops string portions containing user-created tabs
             idx = int(selected.rsplit('\t', 1)[-1])
         except (ValueError, IndexError):
             continue
@@ -720,6 +747,11 @@ def main() -> None:
                 delete_flow(selected_bind)
                 input('Press Enter to continue...')
             elif ch.startswith('e'):
+                if getattr(selected_bind, 'is_unbind', False):
+                    print(f'\n{YELLOW}[NOTE]{RESET} Cannot directly edit an Unbind directive. Delete it to restore the source bind, or select "Create New Keybind".')
+                    input('Press Enter to continue...')
+                    continue
+                
                 changed = edit_loop(selected_bind, source_binds, custom_binds)
                 if changed:
                     print(f'\n{YELLOW}[Enter] Edit another  [q] Quit{RESET}')
