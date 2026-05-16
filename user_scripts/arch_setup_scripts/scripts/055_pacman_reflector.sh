@@ -121,14 +121,17 @@ run_with_spinner() {
         printf '\033[?25h\r\033[K'
     fi
 
-    if wait "$pid"; then
+    # FIX: Properly capture exit code of wait before evaluating
+    wait "$pid"
+    rc=$?
+
+    if (( rc == 0 )); then
         CURRENT_BG_PID=''
         CURRENT_BG_LOG=''
         rm -f -- "$tmp_log"
         return 0
     fi
 
-    rc=$?
     CURRENT_BG_PID=''
     CURRENT_BG_LOG=''
 
