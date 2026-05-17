@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # MatugenFox – Autonomous Setup & Provisioning Script
-# Version: 3.3.2 (Audited & Patched)
+# Version: 3.3.3 (Final Forensic Audit)
 # Target:  Linux (Arch, Fedora, Debian, NixOS, etc.) + macOS
 # Purpose: Zero-touch detection of every installed Firefox-family browser,
 #          profile resolution, native messaging host installation, config
@@ -26,7 +26,7 @@ readonly MANIFEST_NAME="matugenfox.json"
 readonly CONFIG_FILE="$HOST_DIR/config.json"
 readonly EXTENSION_ID="matugenfox@ubaid.com"
 readonly XPI_URL="https://addons.mozilla.org/firefox/downloads/latest/matugenfox/latest.xpi"
-readonly VERSION="3.3.2"
+readonly VERSION="3.3.3"
 
 # =============================================================================
 # ▼ VISUAL STYLING ▼
@@ -276,6 +276,16 @@ MANIFEST
                 BROWSER_NMH_RESOLVED["$browser_id"]="$nmh_dir"
                 installed=$((installed + 1))
                 log_success "Manifest → $nmh_dir"
+
+                # V3.3.3 FIX: Punch sandbox holes for Flatpak installations
+                if [[ "$nmh_dir" == *".var/app/"* ]] && command -v flatpak &>/dev/null; then
+                    local app_id="${nmh_dir#*.var/app/}"
+                    app_id="${app_id%%/*}"
+                    log_info "Applying Flatpak sandbox filesystem overrides for $app_id..."
+                    # Grant access to host script, matugen CSS, and dusky_sites
+                    flatpak override --user --filesystem="$HOST_DIR" --filesystem="$HOME/.config/matugen" --filesystem="$HOME/.config/dusky_sites" "$app_id" || log_warn "Failed to apply Flatpak override."
+                fi
+
                 break
             fi
         done
@@ -405,7 +415,9 @@ bootstrap_profiles() {
             
             local user_js="$profile_path/user.js"
             if ! grep -q "toolkit.legacyUserProfileCustomizations.stylesheets" "$user_js" 2>/dev/null; then
-                echo 'user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);' >> "$user_js"
+                # V3.3.3 FIX: Ensure preference starts on a newline so it doesn't break JS syntax 
+                # if the existing file lacks a trailing EOF newline.
+                printf '\nuser_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);\n' >> "$user_js"
                 log_success "$label/$profile_name: Enabled custom CSS loading"
             fi
             total_profiles=$((total_profiles + 1))
