@@ -1743,7 +1743,7 @@ hl.gesture({
     fingers   = 3,
     direction = "up",
     action    = function()
-        hl.exec_cmd("")
+        hl.exec_cmd("notify-send 'overview coming soong'")
     end,
 })
 
