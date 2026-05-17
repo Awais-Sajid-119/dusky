@@ -1083,8 +1083,7 @@ pages:
         button_text: "Open"
       on_press:
         type: exec
-        command: kitty  --app-id=monitor_wizard.py --hold
-          sh -c "$HOME/user_scripts/hypr/monitor/monitor_wizard.py"
+        command: foot --app-id=dusky_tui --hold ~/user_scripts/dusky_tui/python/main/main.py ~/user_scripts/hypr/monitor/monitor_wizard.py
         terminal: false
     - type: button
       properties:
