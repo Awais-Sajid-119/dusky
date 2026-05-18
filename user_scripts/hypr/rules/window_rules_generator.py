@@ -125,26 +125,26 @@ hl.window_rule({{
         class = "^({safe_class})$",
         -- title = "^({safe_title})$",
         -- xwayland = true,          -- match only XWayland windows
-        -- floating = true,          -- match only floating windows
+        -- float = true,          -- match only floating windows
         -- fullscreen = false,       -- match only non-fullscreen windows
-        -- pinned = false,           -- match only non-pinned windows
+        -- pin = false,           -- match only non-pinned windows
     }},
     float = true,
     -- pin = true,                   -- pin window (always on top, all workspaces)
     -- tile = true,                  -- force tiled (not floating)
-    -- stayfocused = true,           -- window cannot lose focus
+    -- stay_focused = true,           -- window cannot lose focus
 
     size = {{{client.w}, {client.h}}},
     -- size = {{"monitor_w * {r_w_str}", "monitor_h * {r_h_str}"}},
-    -- minsize = {{200, 100}},       -- clamp minimum size
-    -- maxsize = {{1920, 1080}},     -- clamp maximum size
+    -- min_size = {{200, 100}},       -- clamp minimum size
+    -- max_size = {{1920, 1080}},     -- clamp maximum size
     -- keep_aspect_ratio = true,     -- preserve aspect ratio when resizing
 
     move = {{{local_x}, {local_y}}},
     -- move = {{"monitor_w * {r_x_str}", "monitor_h * {r_y_str}"}},
     -- move = {{"monitor_w - window_w - 20", "monitor_h - window_h - 20"}},
     -- center = true,                -- center on the monitor (ignores move)
-    -- center = {{1}},               -- center including reserved areas (e.g. waybar)
+    -- center = {1},               -- center including reserved areas (e.g. waybar)
 
     -- --- Animation ---
     -- Pick ONE style. Remove the "--" from the line you want.
@@ -190,12 +190,10 @@ hl.window_rule({{
     -- no_dim = true,                -- never dim when inactive
     -- dim_around = true,            -- dim everything except this window
     -- no_focus = true,              -- window cannot receive focus
-    -- no_maximize = true,           -- prevent the window from being maximized
+    -- no_maximize = "maximize",           -- prevent the window from being maximized
 
     -- --- Fullscreen / Layout ---
     -- fullscreen = true,                -- open in fullscreen (client-side)
-    -- fullscreen_mode = "real",         -- "real" = true fullscreen
-    -- fullscreen_mode = "maximize",     -- fills workspace but keeps gaps/borders
     -- immediate = true,                 -- bypass Wayland sync protocol (tearing opt-in)
     -- group = "set",                    -- add to a window group
     -- group = "lock",                   -- lock group membership (no auto-grouping)
@@ -203,8 +201,7 @@ hl.window_rule({{
     -- group = "deny",                   -- deny grouping entirely
 
     -- --- Focus & Raise ---
-    -- noraise = true,                   -- clicking window does not raise it to top
-    -- noinitialfocus = true,            -- do not focus when first opened
+    -- no_initial_focus = true,            -- do not focus when first opened
 
     -- --- Suppress / Lifecycle ---
     -- suppress_event = "maximize",      -- eat maximize requests from the app
