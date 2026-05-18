@@ -1652,17 +1652,17 @@ pages:
         - type: section
           properties:
             title: User Customizations
-            description: "Edit hyprland.conf"
+            description: "Edit hyprland.lua"
           items:
             - type: button
               properties:
                 title: Main Config
-                description: Edit hyprland.conf (User Override)
+                description: Edit hyprland.lua (User Override)
                 icon: preferences-desktop-symbolic
                 button_text: "File"
               on_press:
                 type: exec
-                command: gnome-text-editor "$HOME/.config/hypr/edit_here/hyprland.conf"
+                command: gnome-text-editor "$HOME/.config/hypr/edit_here/hyprland.lua"
                 terminal: false
 
     - type: navigation
@@ -1685,7 +1685,7 @@ pages:
                     button_text: "File"
                     on_press:
                       type: exec
-                      command: gnome-text-editor "$HOME/.config/hypr/edit_here/source/keybinds.conf"
+                      command: gnome-text-editor "$HOME/.config/hypr/edit_here/source/keybinds.lua"
                   - icon: input-keyboard-symbolic
                     button_text: "TUI"
                     style: suggested
@@ -1702,13 +1702,13 @@ pages:
                     button_text: "File"
                     on_press:
                       type: exec
-                      command: gnome-text-editor "$HOME/.config/hypr/edit_here/source/input.conf"
+                      command: gnome-text-editor "$HOME/.config/hypr/edit_here/source/input.lua"
                   - icon: input-mouse-symbolic
                     button_text: "TUI"
                     style: suggested
                     on_press:
                       type: exec
-                      command: foot --app-id=dusky_tui /home/dusk/user_scripts/dusky_tui/python/main/main.py /home/dusk/user_scripts/hypr/input/tui_input.py
+                      command: foot --app-id=dusky_tui $HOME/user_scripts/dusky_tui/python/main/main.py $HOME/user_scripts/hypr/input/tui_input.py
 
     - type: navigation
       properties:
@@ -1737,12 +1737,12 @@ pages:
             - type: button
               properties:
                 title: User Environment
-                description: ~/.config/hypr/edit_here/source/environment_variables.conf
+                description: ~/.config/hypr/edit_here/source/environment_variables.lua
                 icon: text-x-script-symbolic
                 button_text: "File"
               on_press:
                 type: exec
-                command: gnome-text-editor "$HOME/.config/hypr/edit_here/source/environment_variables.conf"
+                command: gnome-text-editor "$HOME/.config/hypr/edit_here/source/environment_variables.lua"
             - type: button
               properties:
                 title: UWSM Global
@@ -1782,7 +1782,7 @@ pages:
                     button_text: "File"
                     on_press:
                       type: exec
-                      command: gnome-text-editor "$HOME/.config/hypr/edit_here/source/monitors.conf"
+                      command: gnome-text-editor "$HOME/.config/hypr/edit_here/source/monitors.lua"
                   - icon: video-display-symbolic
                     button_text: "TUI"
                     style: suggested
@@ -1799,7 +1799,7 @@ pages:
                     button_text: "File"
                     on_press:
                       type: exec
-                      command: gnome-text-editor "$HOME/.config/hypr/edit_here/source/window_rules.conf"
+                      command: gnome-text-editor "$HOME/.config/hypr/edit_here/source/window_rules.lua"
                   - icon: application-x-addon-symbolic
                     button_text: "TUI"
                     style: suggested
@@ -1827,7 +1827,7 @@ pages:
                     button_text: "File"
                     on_press:
                       type: exec
-                      command: gnome-text-editor "$HOME/.config/hypr/edit_here/source/appearance.conf"
+                      command: gnome-text-editor "$HOME/.config/hypr/edit_here/source/appearance.lua"
                   - icon: applications-graphics-symbolic
                     button_text: "TUI"
                     style: suggested
@@ -1844,7 +1844,7 @@ pages:
                     button_text: "File"
                     on_press:
                       type: exec
-                      command: gnome-text-editor "$HOME/.config/hypr/edit_here/source/workspace_rules.conf"
+                      command: gnome-text-editor "$HOME/.config/hypr/edit_here/source/workspace_rules.lua"
                   - icon: applications-graphics-symbolic
                     button_text: "TUI"
                     style: suggested
@@ -2108,53 +2108,53 @@ pages:
           items:
             - type: button
               properties:
-                title: Hyprland.conf
+                title: Hyprland.lua
                 button_text: "View"
               on_press:
                 type: exec
-                command: gnome-text-editor "$HOME/.config/hypr/hyprland.conf"
+                command: gnome-text-editor "$HOME/.config/hypr/hyprland.lua"
             - type: button
               properties:
                 title: Environment Variables
                 button_text: "View"
               on_press:
                 type: exec
-                command: gnome-text-editor "$HOME/.config/hypr/source/environment_variables.conf"
+                command: gnome-text-editor "$HOME/.config/hypr/source/environment_variables.lua"
             - type: button
               properties:
                 title: Appearance
                 button_text: "View"
               on_press:
                 type: exec
-                command: gnome-text-editor "$HOME/.config/hypr/source/appearance.conf"
+                command: gnome-text-editor "$HOME/.config/hypr/source/appearance.lua"
             - type: button
               properties:
                 title: Autostart
                 button_text: "View"
               on_press:
                 type: exec
-                command: gnome-text-editor "$HOME/.config/hypr/source/autostart.conf"
+                command: gnome-text-editor "$HOME/.config/hypr/source/autostart.lua"
             - type: button
               properties:
                 title: Keybinds
                 button_text: "View"
               on_press:
                 type: exec
-                command: gnome-text-editor "$HOME/.config/hypr/source/keybinds.conf"
+                command: gnome-text-editor "$HOME/.config/hypr/source/keybinds.lua"
             - type: button
               properties:
                 title: Window Rules
                 button_text: "View"
               on_press:
                 type: exec
-                command: gnome-text-editor "$HOME/.config/hypr/source/window_rules.conf"
+                command: gnome-text-editor "$HOME/.config/hypr/source/window_rules.lua"
             - type: button
               properties:
                 title: Input
                 button_text: "View"
               on_press:
                 type: exec
-                command: gnome-text-editor "$HOME/.config/hypr/source/input.conf"
+                command: gnome-text-editor "$HOME/.config/hypr/source/input.lua"
 
 - id: keybinds
   title: Keybinds
