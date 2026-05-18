@@ -906,7 +906,7 @@ hl.on("hyprland.start", function()
     hl.exec_cmd("uwsm-app -- wl-clip-persist --clipboard regular")
 
     -- --- OPTIONAL / USER INTERFACE ---
-    hl.exec_cmd("uwsm-app -- $HOME/user_scripts/waybar/waybar_autostart.sh")
+    hl.exec_cmd("uwsm-app -- $HOME/user_scripts/waybar/waybar_toggle.sh")
     -- hl.exec_cmd("uwsm-app -- $HOME/user_scripts/waybar/toggle_timer_waybar.sh")
     -- hl.exec_cmd("uwsm-app -- nm-applet")
 

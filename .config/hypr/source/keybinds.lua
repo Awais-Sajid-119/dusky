@@ -219,7 +219,7 @@ hl.bind(
 -- --- Waybar Toggle ---
 hl.bind(
     "ALT + 9",
-    hl.dsp.exec_cmd(dusky_scripts .. "waybar/waybar_autostart.sh"),
+    hl.dsp.exec_cmd(dusky_scripts .. "waybar/waybar_toggle.sh"),
     { description = "Start Waybar for 1 Min" }
 )
 
