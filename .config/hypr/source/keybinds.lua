@@ -225,8 +225,8 @@ hl.bind(
 
 hl.bind(
     "ALT + 0",
-    hl.dsp.exec_cmd("pkill waybar"),
-    { description = "Kill Waybar", locked = true }
+    hl.dsp.exec_cmd("makoctl dismiss -a"),
+    { description = "Clear Screen Notifications", locked = true }
 )
 
 hl.bind(

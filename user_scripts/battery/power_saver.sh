@@ -130,7 +130,8 @@ execute_custom_commands() {
         log_info "Executing hook: $cmd"
         result=0
         # Safe execution isolated from the main orchestrator thread
-        bash -c "set -eo pipefail; $cmd" || result=$?
+        # Passed via $1 to prevent quote injection vulnerabilities
+        bash -c 'set -eo pipefail; eval "$1"' _ "$cmd" || result=$?
         
         if (( result != 0 )); then
             log_warn "Hook command failed (exit $result): $cmd"
@@ -270,21 +271,33 @@ set_hardware_profiles() {
         # 6. EXTERNAL DISPLAY BRIGHTNESS (Async DDC/CI)
         if has_cmd ddcutil; then
             log_info "Dispatching external monitor brightness lock (async)..."
-            (
-                # Protect against state clobbering on sequential --enable runs
-                if [[ ! -f "${STATE_DIR}/ddc_brightness.state" ]]; then
-                    local ddc_out current_ddc
-                    local ddc_regex="VCP[[:space:]]+${DDC_VCP_BRIGHTNESS_CODE}[[:space:]]+C[[:space:]]+([0-9]+)"
-                    # Terse output parsing: "VCP <CODE> C <current> <max>"
-                    ddc_out=$(ddcutil getvcp "${DDC_VCP_BRIGHTNESS_CODE}" --terse 2>/dev/null || true)
-                    if [[ "$ddc_out" =~ $ddc_regex ]]; then
-                        current_ddc="${BASH_REMATCH[1]}"
-                        save_state "ddc_brightness" "$current_ddc"
+            # Prevent race conditions on double-clicks by claiming the state file in the main thread instantly
+            if [[ ! -f "${STATE_DIR}/ddc_brightness.state" ]]; then
+                printf "FETCHING" > "${STATE_DIR}/ddc_brightness.state"
+                
+                nohup bash -c '
+                    state_file="$1"
+                    vcp_code="$2"
+                    level="$3"
+                    
+                    ddc_out=$(ddcutil getvcp "$vcp_code" --terse 2>/dev/null || true)
+                    if [[ "$ddc_out" =~ VCP[[:space:]]+${vcp_code}[[:space:]]+C[[:space:]]+([0-9]+) ]]; then
+                        printf "%s" "${BASH_REMATCH[1]}" > "$state_file"
+                    else
+                        # Remove lock if fetch failed so it can be retried safely later
+                        rm -f "$state_file"
                     fi
-                fi
-                # Strip the % sign from BRIGHTNESS_PS_LEVEL if present, as ddcutil requires integers
-                ddcutil setvcp "${DDC_VCP_BRIGHTNESS_CODE}" "${BRIGHTNESS_PS_LEVEL%\%}" &>/dev/null || true
-            ) &
+                    
+                    ddcutil setvcp "$vcp_code" "$level" >/dev/null 2>&1 || true
+                ' _ "${STATE_DIR}/ddc_brightness.state" "${DDC_VCP_BRIGHTNESS_CODE}" "${BRIGHTNESS_PS_LEVEL%\%}" </dev/null >/dev/null 2>&1 &
+            else
+                # State is already saved (or being fetched), just enforce the brightness limit
+                nohup bash -c '
+                    vcp_code="$1"
+                    level="$2"
+                    ddcutil setvcp "$vcp_code" "$level" >/dev/null 2>&1 || true
+                ' _ "${DDC_VCP_BRIGHTNESS_CODE}" "${BRIGHTNESS_PS_LEVEL%\%}" </dev/null >/dev/null 2>&1 &
+            fi
         fi
 
         # 7. AUDIO VOLUME CAP
@@ -377,14 +390,29 @@ set_hardware_profiles() {
         # DDC/CI EXTERNAL BRIGHTNESS (Async)
         if has_cmd ddcutil; then
             log_info "Dispatching external monitor brightness restore (async)..."
-            (
-                local prev_ddc
-                prev_ddc=$(get_state "ddc_brightness")
-                if [[ -n "$prev_ddc" ]]; then
-                    ddcutil setvcp "${DDC_VCP_BRIGHTNESS_CODE}" "$prev_ddc" &>/dev/null || true
-                    clear_state "ddc_brightness"
+            # Detach completely and safely wait if a fetch is currently in progress
+            nohup bash -c '
+                state_file="$1"
+                vcp_code="$2"
+                
+                if [[ -f "$state_file" ]]; then
+                    prev_ddc=$(<"$state_file")
+                    
+                    if [[ "$prev_ddc" == "FETCHING" ]]; then
+                        # Wait up to 3 seconds for the rapid enable-task to finish probing the monitor
+                        for _ in {1..30}; do
+                            sleep 0.1
+                            prev_ddc=$(<"$state_file" 2>/dev/null || echo "")
+                            if [[ "$prev_ddc" =~ ^[0-9]+$ ]]; then break; fi
+                        done
+                    fi
+
+                    if [[ "$prev_ddc" =~ ^[0-9]+$ ]]; then
+                        ddcutil setvcp "$vcp_code" "$prev_ddc" >/dev/null 2>&1 || true
+                        rm -f "$state_file"
+                    fi
                 fi
-            ) &
+            ' _ "${STATE_DIR}/ddc_brightness.state" "${DDC_VCP_BRIGHTNESS_CODE}" </dev/null >/dev/null 2>&1 &
         fi
 
         # VOLUME & MUTE STATE
@@ -456,6 +484,10 @@ manage_services() {
             local -a pids=()
             mapfile -t pids < <(pgrep -x "$proc" 2>/dev/null || true)
             if ((${#pids[@]} > 0)); then
+                # Securely capture the exact NUL-delimited argument array directly from the kernel
+                if [[ -r "/proc/${pids[0]}/cmdline" ]]; then
+                    cp "/proc/${pids[0]}/cmdline" "${STATE_DIR}/proc_cmd_${proc}.state" 2>/dev/null || true
+                fi
                 save_state "proc_active_${proc}" "true"
                 terminate_pids pids
             fi
@@ -466,6 +498,10 @@ manage_services() {
             local -a script_pids=()
             mapfile -t script_pids < <(get_script_pids "$script")
             if ((${#script_pids[@]} > 0)); then
+                # Securely capture the exact NUL-delimited argument array directly from the kernel
+                if [[ -r "/proc/${script_pids[0]}/cmdline" ]]; then
+                    cp "/proc/${script_pids[0]}/cmdline" "${STATE_DIR}/script_cmd_${script}.state" 2>/dev/null || true
+                fi
                 save_state "script_active_${script}" "true"
                 terminate_pids script_pids
             fi
@@ -508,30 +544,78 @@ manage_services() {
             fi
         done
         
-        # Simple processes (Using nohup + disown to safely survive script SIGHUP dispatch)
+        # Simple processes (Safely restored using exact NUL-delimited kernel arguments)
         for proc in "${TARGET_PROCESSES[@]}"; do
             if [[ "$(get_state "proc_active_${proc}")" == "true" ]]; then
-                if has_cmd uwsm; then
-                    nohup uwsm app -- "$proc" </dev/null >/dev/null 2>&1 &
-                    disown "$!" 2>/dev/null || true
+                local cmd_state_file="${STATE_DIR}/proc_cmd_${proc}.state"
+                
+                if [[ -f "$cmd_state_file" ]]; then
+                    local -a cmd_array=()
+                    while IFS= read -r -d $'\0' arg; do
+                        cmd_array+=("$arg")
+                    done < "$cmd_state_file"
+                    
+                    if ((${#cmd_array[@]} > 0)); then
+                        if has_cmd uwsm; then
+                            nohup uwsm app -- "${cmd_array[@]}" </dev/null >/dev/null 2>&1 &
+                        else
+                            nohup "${cmd_array[@]}" </dev/null >/dev/null 2>&1 &
+                        fi
+                    else
+                        # Fallback if array was empty
+                        if has_cmd uwsm; then
+                            nohup uwsm app -- "$proc" </dev/null >/dev/null 2>&1 &
+                        else
+                            nohup "$proc" </dev/null >/dev/null 2>&1 &
+                        fi
+                    fi
+                    rm -f "$cmd_state_file"
                 else
-                    nohup "$proc" </dev/null >/dev/null 2>&1 &
-                    disown "$!" 2>/dev/null || true
+                    # Fallback if no command context was caught
+                    if has_cmd uwsm; then
+                        nohup uwsm app -- "$proc" </dev/null >/dev/null 2>&1 &
+                    else
+                        nohup "$proc" </dev/null >/dev/null 2>&1 &
+                    fi
                 fi
+                disown "$!" 2>/dev/null || true
                 clear_state "proc_active_${proc}"
             fi
         done
         
-        # Background Scripts (Using nohup + disown to safely survive script SIGHUP dispatch)
+        # Background Scripts (Safely restored using exact NUL-delimited kernel arguments)
         for script in "${TARGET_SCRIPTS[@]}"; do
             if [[ "$(get_state "script_active_${script}")" == "true" ]]; then
-                if has_cmd uwsm; then
-                    nohup uwsm app -- "$script" </dev/null >/dev/null 2>&1 &
-                    disown "$!" 2>/dev/null || true
+                local cmd_state_file="${STATE_DIR}/script_cmd_${script}.state"
+                
+                if [[ -f "$cmd_state_file" ]]; then
+                    local -a cmd_array=()
+                    while IFS= read -r -d $'\0' arg; do
+                        cmd_array+=("$arg")
+                    done < "$cmd_state_file"
+                    
+                    if ((${#cmd_array[@]} > 0)); then
+                        if has_cmd uwsm; then
+                            nohup uwsm app -- "${cmd_array[@]}" </dev/null >/dev/null 2>&1 &
+                        else
+                            nohup "${cmd_array[@]}" </dev/null >/dev/null 2>&1 &
+                        fi
+                    else
+                        if has_cmd uwsm; then
+                            nohup uwsm app -- "$script" </dev/null >/dev/null 2>&1 &
+                        else
+                            nohup "$script" </dev/null >/dev/null 2>&1 &
+                        fi
+                    fi
+                    rm -f "$cmd_state_file"
                 else
-                    nohup "$script" </dev/null >/dev/null 2>&1 &
-                    disown "$!" 2>/dev/null || true
+                    if has_cmd uwsm; then
+                        nohup uwsm app -- "$script" </dev/null >/dev/null 2>&1 &
+                    else
+                        nohup "$script" </dev/null >/dev/null 2>&1 &
+                    fi
                 fi
+                disown "$!" 2>/dev/null || true
                 clear_state "script_active_${script}"
             fi
         done
@@ -556,15 +640,15 @@ manage_animations() {
                 fi
                 save_state "visuals" "$current_visuals"
             fi
-            # Execute the toggle script to disable blur/shadows and edit config files
-            "${VISUALS_SCRIPT}" off &>/dev/null || true
+            # Execute the toggle script to disable blur/shadows and edit config files (severing stdin)
+            "${VISUALS_SCRIPT}" off </dev/null >/dev/null 2>&1 || true
             
         elif [[ "$mode" == "disable" ]]; then
             local prev_visuals
             prev_visuals=$(get_state "visuals")
             # Only restore visuals if they were actually ON before power saver started
             if [[ "$prev_visuals" == "True" ]]; then
-                "${VISUALS_SCRIPT}" on &>/dev/null || true
+                "${VISUALS_SCRIPT}" on </dev/null >/dev/null 2>&1 || true
             fi
             clear_state "visuals"
         fi
@@ -595,24 +679,24 @@ manage_animations() {
     if [[ "$mode" == "enable" ]]; then
         # Use zero-fork IPC to freeze animations instantly during power save
         if has_cmd uwsm && has_cmd hyprctl; then
-            uwsm app -- hyprctl keyword animations:enabled 0 &>/dev/null || log_warn "IPC signal dropped: animations"
+            uwsm app -- hyprctl keyword animations:enabled 0 </dev/null >/dev/null 2>&1 || log_warn "IPC signal dropped: animations"
         elif has_cmd hyprctl && [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
-            hyprctl keyword animations:enabled 0 &>/dev/null || log_warn "IPC signal dropped: animations"
+            hyprctl keyword animations:enabled 0 </dev/null >/dev/null 2>&1 || log_warn "IPC signal dropped: animations"
         fi
     elif [[ "$mode" == "disable" ]]; then
         # Delegate restoration to the user's Rofi script to ensure custom curves are loaded
         if [[ -x "${ANIM_SCRIPT}" ]]; then
             if has_cmd uwsm; then
-                uwsm app -- "${ANIM_SCRIPT}" --current &>/dev/null || true
+                uwsm app -- "${ANIM_SCRIPT}" --current </dev/null >/dev/null 2>&1 || true
             else
-                "${ANIM_SCRIPT}" --current &>/dev/null || true
+                "${ANIM_SCRIPT}" --current </dev/null >/dev/null 2>&1 || true
             fi
         else
             # Fallback if Rofi script is missing
             if has_cmd uwsm && has_cmd hyprctl; then
-                uwsm app -- hyprctl keyword animations:enabled 1 &>/dev/null || log_warn "IPC signal dropped: animations"
+                uwsm app -- hyprctl keyword animations:enabled 1 </dev/null >/dev/null 2>&1 || log_warn "IPC signal dropped: animations"
             elif has_cmd hyprctl && [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
-                hyprctl keyword animations:enabled 1 &>/dev/null || log_warn "IPC signal dropped: animations"
+                hyprctl keyword animations:enabled 1 </dev/null >/dev/null 2>&1 || log_warn "IPC signal dropped: animations"
             fi
         fi
     fi
@@ -635,7 +719,7 @@ enable_power_saver() {
 
     if [[ "$theme" == "true" ]] && has_cmd uwsm; then
         log_info "Applying Light Theme for backlight optimization..."
-        uwsm app -- "${THEME_SCRIPT}" set --mode light &>/dev/null || true
+        uwsm app -- "${THEME_SCRIPT}" set --mode light </dev/null >/dev/null 2>&1 || true
     fi
 
     # Update global GUI state
@@ -664,7 +748,7 @@ disable_power_saver() {
 
     if [[ "$theme" == "true" ]] && has_cmd uwsm; then
         log_info "Restoring Dark Theme..."
-        uwsm app -- "${THEME_SCRIPT}" set --mode dark &>/dev/null || true
+        uwsm app -- "${THEME_SCRIPT}" set --mode dark </dev/null >/dev/null 2>&1 || true
     fi
 
     clear_state "power_saver_active"

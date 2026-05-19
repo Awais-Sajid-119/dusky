@@ -979,13 +979,13 @@ pages:
       on_toggle:
         enabled:
           type: exec
-          command: kitty --class power_saver.sh --title "Enable Power Saver" --hold
-            sh -c "$HOME/user_scripts/battery/power_saving/power_saver.sh"
+          command: foot --app-id=power_saver.sh --title "Enable Power Saver"
+            sh -c "$HOME/user_scripts/battery/power_saver.sh -e"
           terminal: false
         disabled:
           type: exec
           command: kitty --class power_saver_off.sh --title "Disable Power Saver"
-            --hold sh -c "$HOME/user_scripts/battery/power_saving_off/power_saver_off.sh"
+            sh -c "$HOME/user_scripts/battery/power_saver.sh -d"
           terminal: false
     - type: button
       properties:
