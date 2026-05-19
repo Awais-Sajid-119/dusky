@@ -73,8 +73,7 @@ class HyprlangEngine(BaseEngine):
                     if "=" in clean:
                         k_raw, v_raw = clean.split("=", 1)
                         k = k_raw.strip()
-                        # Strip trailing block closures from the value if written on a single line
-                        v = v_raw.split('}')[0].strip()
+                        v = v_raw.strip()
                         
                         # Handle inline categories (e.g., category:variable = value)
                         if ":" in k and not k.startswith("$") and not block_stack:
@@ -98,7 +97,7 @@ class HyprlangEngine(BaseEngine):
                     
                     # 3. Match Block Closes (Immune to arithmetic {{}} braces)
                     clean_no_arith = re.sub(r'\{\{.*?\}\}', '', clean)
-                    closes = clean_no_arith.count("}")
+                    closes = clean_no_arith.split("=")[0].count("}")
                     for _ in range(closes):
                         if block_stack:
                             block_stack.pop()
@@ -138,7 +137,7 @@ class HyprlangEngine(BaseEngine):
             # --- PASS 1: Inline Replacement & AST Traversal ---
             for line in lines:
                 hidden = line.replace('##', '\x00')
-                clean_no_comment = hidden.split('#')[0].replace('\x00', '#')
+                clean_no_comment = hidden.split('#')[0].replace('\x00', '#').strip()
                 do_replace = False
                 
                 # 1. Update AST State (Opens)
@@ -198,7 +197,7 @@ class HyprlangEngine(BaseEngine):
 
                 # 3. Update AST State (Closes) - Measured against current out_lines length
                 clean_no_arith = re.sub(r'\{\{.*?\}\}', '', clean_no_comment)
-                closes = clean_no_arith.count("}")
+                closes = clean_no_arith.split("=")[0].count("}")
                 if closes > 0 and not do_replace:
                     for _ in range(closes):
                         if block_stack:
