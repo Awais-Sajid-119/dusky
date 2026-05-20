@@ -205,6 +205,8 @@ declare -ra UPDATE_SEQUENCE=(
     "U | dusky_commands_before.sh"
 #================= Scripts =====================
 
+#    "U | 002_pre_generated_colors.sh"
+#    "U | 003_network_connect.sh"
     "U | 005_hypr_custom_config_setup.sh"
     "U | 005_hypr_custom_config_setup.sh --trackpad --autostart --force"
     "U | 010_package_removal.sh --auto"

@@ -35,6 +35,7 @@ POST_SCRIPT_DELAY=0
 
 INSTALL_SEQUENCE=(
 
+    "U | 002_pre_generated_colors.sh"
     "U | 003_network_connect.sh"
 
 # ------ CUSTOM PATH SCRIPTS -------
