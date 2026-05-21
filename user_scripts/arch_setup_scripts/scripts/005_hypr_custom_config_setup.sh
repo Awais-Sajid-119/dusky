@@ -743,7 +743,7 @@ hl.config({
     -- ==========================================
     xwayland = {
         use_nearest_neighbor = true, -- Nearest neighbor filtering (pixelated vs blurry)
-        force_zero_scaling = false -- Force scale of 1 on xwayland windows on scaled displays
+        force_zero_scaling = true -- Force scale of 1 on xwayland windows on scaled displays
     },
 
     opengl = {
