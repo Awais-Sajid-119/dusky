@@ -33,6 +33,9 @@ readonly PID_FILE="$BASE_DIR/$APP_NAME.pid"
 readonly LOCK_FILE="$BASE_DIR/$APP_NAME.lock"
 readonly MARKER_FILE="$BASE_DIR/.build_marker_v1"
 
+# The notification to show when triggered via keybind before setup is complete
+readonly NOT_SETUP_MSG="Install Dusky Keys from the Control Center."
+
 # --- ANSI COLORS ---
 readonly C_RED=$'\033[1;31m'
 readonly C_GREEN=$'\033[1;32m'
@@ -112,8 +115,15 @@ if [[ "$RUN_MODE" == "reset" ]]; then
     exit 0
 fi
 
+# --- INTERACTIVE DETECTION ---
+[[ -t 0 ]] && INTERACTIVE=true || INTERACTIVE=false
+
 # --- 2. INPUT ACCESS CHECK ---
 if ! current_session_has_input_access; then
+    if ! $INTERACTIVE; then
+        notify_user "$NOT_SETUP_MSG"
+        exit 1
+    fi
     printf "%b[CRITICAL]%b You are not in the 'input' group.\n" "${C_RED}" "${C_RESET}"
     printf "Run: %bsudo usermod -aG input %s%b\n" "${C_CYAN}" "$USER" "${C_RESET}"
     notify_user "Permission Denied. Run: sudo usermod -aG input $USER\nThen log out and log back in."
@@ -126,15 +136,23 @@ acquire_lock
 mkdir -p "$BASE_DIR" 2>/dev/null || true
 
 if [[ ! -x "$PYTHON_BIN" ]]; then
+    if ! $INTERACTIVE; then
+        notify_user "$NOT_SETUP_MSG"
+        exit 1
+    fi
     printf "%b[BUILD]%b Initializing UV environment...\n" "${C_BLUE}" "${C_RESET}"
     if ! command -v uv >/dev/null 2>&1; then
-        notify_user "Missing 'uv' package manager. Install it first."
+        printf "%b[ERROR]%b Missing 'uv' package manager.\n" "${C_RED}" "${C_RESET}"
         exit 1
     fi
     uv venv "$VENV_DIR" --quiet
 fi
 
 if [[ ! -f "$MARKER_FILE" ]]; then
+    if ! $INTERACTIVE; then
+        notify_user "$NOT_SETUP_MSG"
+        exit 1
+    fi
     printf "%b[BUILD]%b Compiling python dependencies with native CPU flags...\n" "${C_YELLOW}" "${C_RESET}"
     export CFLAGS="-march=native -O3 -pipe -flto=auto"
     uv pip install --python "$PYTHON_BIN" --upgrade --no-binary evdev evdev
