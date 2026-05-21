@@ -243,7 +243,7 @@ SCHEMA = {
             key="max-icon-size",
             scope="DEFAULT",       
             type_="int",
-            default=48,
+            default=30,
             min_val=16,
             max_val=128,
             step=4,
@@ -261,15 +261,6 @@ SCHEMA = {
             step=1,
             group="Icons",
             extended_help="**Icon Corner Smoothing**\n\nApplies rounded corners specifically to the internal icon/image."
-        ),
-        ConfigItem(
-            label="IconPath",
-            key="icon-path",
-            scope="DEFAULT",       
-            type_="string",
-            default="/usr/share/icons/Papirus-Dark:/usr/share/icons/Papirus-Light:/usr/share/icons/Papirus:/usr/share/icons/breeze-dark:/usr/share/icons/breeze:/usr/share/icons/Adwaita:/usr/share/icons/AdwaitaLegacy:/usr/share/icons/hicolor",
-            group="Icons",
-            extended_help="**Icon Search Directories**\n\nColon-delimited paths that Mako searches through to resolve requested application icons."
         ),
         ConfigItem(
             label="Background",
@@ -385,14 +376,17 @@ SCHEMA = {
             group="Queue",
             extended_help="**Stack Orientation**\n\nDetermines whether new notifications appear at the top or bottom of the stack."
         ),
+        # --- ACTIONS HYBRID FOLDER ---
         ConfigItem(
             label="Actions",
             key="actions",
             scope="DEFAULT",       
             type_="bool",
             default=True,
+            is_parent=True,
+            expanded=False,
             group="Clicks",
-            extended_help="**Allow Triggers**\n\nMaster toggle for allowing notifications to execute commands when clicked."
+            extended_help="**Allow Triggers**\n\nMaster toggle for allowing notifications to execute commands when clicked. Expand this folder to bind specific shell/app commands to your mouse buttons."
         ),
         ConfigItem(
             label="LeftBtn",
@@ -400,8 +394,8 @@ SCHEMA = {
             scope="DEFAULT",       
             type_="string",
             default="invoke-default-action",
-            group="Clicks",
-            extended_help="**Primary Click Action**\n\nWhat happens when you left-click a notification. Usually opens the calling app."
+            parent_ref="actions",
+            extended_help="**Primary Click Action**\n\nWhat happens when you left-click a notification. Usually `invoke-default-action` opens the calling app."
         ),
         ConfigItem(
             label="MidBtn",
@@ -409,8 +403,8 @@ SCHEMA = {
             scope="DEFAULT",       
             type_="string",
             default="exec makoctl menu -n \"$MAKO_NOTIFICATION_ID\" -- rofi -dmenu -p Action:",
-            group="Clicks",
-            extended_help="**Middle Click Action**\n\nPawns a Rofi menu listing all secondary actions embedded in the notification."
+            parent_ref="actions",
+            extended_help="**Middle Click Action**\n\nSpawns a Rofi menu listing all secondary actions embedded in the notification."
         ),
         ConfigItem(
             label="RightBtn",
@@ -418,8 +412,8 @@ SCHEMA = {
             scope="DEFAULT",       
             type_="string",
             default="dismiss",
-            group="Clicks",
-            extended_help="**Secondary Click Action**\n\nUsually immediately clears the notification from the screen."
+            parent_ref="actions",
+            extended_help="**Secondary Click Action**\n\nUsually immediately clears the notification from the screen (`dismiss`)."
         ),
         ConfigItem(
             label="OnNotify",
@@ -443,7 +437,7 @@ SCHEMA = {
         ),
         ConfigItem(
             label="Timeout", key="default-timeout", scope="urgency=low", type_="int", default=2000, min_val=0, max_val=15000, step=500, parent_ref="menu_low",
-            extended_help="Overrides default timeout for low urgency items."
+            extended_help="**Low Urgency Timeout**\n\nOverrides default lifespan for trivial alerts. Lowering this clears clutter faster."
         ),
         
         # --- NORMAL URGENCY ---
@@ -453,7 +447,7 @@ SCHEMA = {
         ),
         ConfigItem(
             label="Timeout", key="default-timeout", scope="urgency=normal", type_="int", default=3000, min_val=0, max_val=15000, step=500, parent_ref="menu_norm",
-            extended_help="Overrides default timeout for standard items."
+            extended_help="**Normal Urgency Timeout**\n\nOverrides default lifespan for standard items."
         ),
 
         # --- CRITICAL URGENCY ---
@@ -463,30 +457,31 @@ SCHEMA = {
         ),
         ConfigItem(
             label="Invisible", key="invisible", scope="urgency=critical", type_="bool", default=False, parent_ref="menu_crit",
-            extended_help="Ensures critical alerts bypass any DND invisibility."
+            extended_help="**Critical Visibility**\n\nEnsures critical alerts forcefully bypass any Do Not Disturb invisibility rules."
         ),
         ConfigItem(
             label="Timeout", key="default-timeout", scope="urgency=critical", type_="int", default=0, min_val=0, max_val=30000, step=500, parent_ref="menu_crit",
-            extended_help="Setting to 0 ensures critical items stay on screen infinitely."
+            extended_help="**Critical Timeout**\n\nSetting to 0 ensures critical items stay on screen infinitely until manually cleared."
         ),
         ConfigItem(
             label="Ignore", key="ignore-timeout", scope="urgency=critical", type_="bool", default=True, parent_ref="menu_crit",
-            extended_help="Forces Mako to ignore timeout instructions from the app sending the critical error."
+            extended_help="**Force Display**\n\nForces Mako to ignore timeout instructions from the app sending the critical error."
         ),
         ConfigItem(
-            label="OnNotify", key="on-notify", scope="urgency=critical", type_="string", default="exec pkill -RTMIN+8 waybar", parent_ref="menu_crit"
+            label="OnNotify", key="on-notify", scope="urgency=critical", type_="string", default="exec pkill -RTMIN+8 waybar", parent_ref="menu_crit",
+            extended_help="**Critical Event Hook**\n\nA shell script executed exclusively when a critical priority alert fires."
         ),
         ConfigItem(
             label="Background", key="background-color", scope="urgency=critical", type_="color", default="{{colors.error_container.default.hex}}e6", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_crit",
-            extended_help="Critical level fill." + ALPHA_HELP
+            extended_help="**Critical Background**\n\nUsually set to red/error colors." + ALPHA_HELP
         ),
         ConfigItem(
             label="Text", key="text-color", scope="urgency=critical", type_="color", default="{{colors.on_error_container.default.hex}}", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_crit",
-            extended_help="Critical level text." + ALPHA_HELP
+            extended_help="**Critical Text**\n\nTypography color for critical alerts." + ALPHA_HELP
         ),
         ConfigItem(
             label="Border", key="border-color", scope="urgency=critical", type_="color", default="{{colors.error.default.hex}}", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_crit",
-            extended_help="Critical level outline." + ALPHA_HELP
+            extended_help="**Critical Border**\n\nBorder frame color for critical alerts." + ALPHA_HELP
         ),
 
         # --- MODES ---
@@ -496,11 +491,11 @@ SCHEMA = {
         ),
         ConfigItem(
             label="Invisible", key="invisible", scope="mode=do-not-disturb", type_="bool", default=True, parent_ref="menu_dnd",
-            extended_help="Hides all popups silently caching them in history."
+            extended_help="**Hide All**\n\nHides all standard popups silently, caching them directly in history instead."
         ),
         ConfigItem(
             label="OnNotify", key="on-notify", scope="mode=do-not-disturb", type_="string", default="none", parent_ref="menu_dnd",
-            extended_help="Prevents notification chimes or hooks from firing."
+            extended_help="**Mute Hooks**\n\nPrevents external notification chimes or scripts from executing while DND is active."
         ),
 
         ConfigItem(
@@ -509,7 +504,7 @@ SCHEMA = {
         ),
         ConfigItem(
             label="OnNotify", key="on-notify", scope="mode=silent", type_="string", default="none", parent_ref="menu_silent",
-            extended_help="Nullifies standard sound hooks."
+            extended_help="**Nullify Audio**\n\nOverrides the `on-notify` hook to block standard sound executions."
         ),
     ],
 
@@ -535,150 +530,150 @@ SCHEMA = {
         ),
         ConfigItem(
             label="Timeout", key="default-timeout", scope='app-name="VLC media player"', type_="int", default=1500, min_val=0, max_val=10000, step=500, parent_ref="menu_vlc",
-            extended_help="Duration in milliseconds for VLC popups."
+            extended_help="**VLC Display Time**\n\nDuration in milliseconds for VLC specific track/volume popups."
         ),
         
         ConfigItem(
             label="Grimblast", key="menu_grimblast", scope="DEFAULT", type_="menu", default=None, is_parent=True, group="Apps",
             extended_help="**Grimblast Utility**\n\nDefines the behavior of the notification that appears after taking a screenshot."
         ),
-        ConfigItem(label="Size", key="max-icon-size", scope="app-name=grimblast", type_="int", default=84, min_val=16, max_val=200, step=4, parent_ref="menu_grimblast"),
-        ConfigItem(label="Timeout", key="default-timeout", scope="app-name=grimblast", type_="int", default=4000, min_val=0, max_val=10000, step=500, parent_ref="menu_grimblast"),
-        ConfigItem(label="Format", key="format", scope="app-name=grimblast", type_="string", default="<b>%s</b>\\n%b", parent_ref="menu_grimblast"),
-        ConfigItem(label="OnClick", key="on-button-left", scope="app-name=grimblast", type_="string", default="exec imv \"$MAKO_NOTIFICATION_BODY\"", parent_ref="menu_grimblast", extended_help="**View Image Action**\n\nExecutes this command when you left-click. Defaults to opening it in `imv`."),
+        ConfigItem(label="Size", key="max-icon-size", scope="app-name=grimblast", type_="int", default=30, min_val=16, max_val=200, step=4, parent_ref="menu_grimblast", extended_help="**Screenshot Thumbnail Size**\n\nThe maximum pixel dimensions for the captured screenshot preview image."),
+        ConfigItem(label="Timeout", key="default-timeout", scope="app-name=grimblast", type_="int", default=4000, min_val=0, max_val=10000, step=500, parent_ref="menu_grimblast", extended_help="**Screenshot Alert Lifespan**\n\nMilliseconds the screenshot confirmation popup stays on screen."),
+        ConfigItem(label="Format", key="format", scope="app-name=grimblast", type_="string", default="<b>%s</b>\\n%b", parent_ref="menu_grimblast", extended_help="**Screenshot Text Format**\n\nDefines the layout logic for the Grimblast notification text output."),
+        ConfigItem(label="OnClick", key="on-button-left", scope="app-name=grimblast", type_="string", default="exec imv \"$MAKO_NOTIFICATION_BODY\"", parent_ref="menu_grimblast", extended_help="**View Image Action**\n\nExecutes this command when you left-click the alert. Defaults to opening the image directly in `imv`."),
 
         ConfigItem(
             label="Updater", key="menu_updater", scope="DEFAULT", type_="menu", default=None, is_parent=True, group="Apps",
             extended_help="**Dusky Updater**\n\nHandles update alerts spawned by the system dotfile synchronization scripts."
         ),
-        ConfigItem(label="OnClick", key="on-button-left", scope='summary="Dusky Dotfiles"', type_="string", default="exec kitty --class update_dusky.sh --hold ~/user_scripts/update_dusky/update_dusky.sh", parent_ref="menu_updater", extended_help="Shell script executed on interaction."),
+        ConfigItem(label="OnClick", key="on-button-left", scope='summary="Dusky Dotfiles"', type_="string", default="exec kitty --class update_dusky.sh --hold ~/user_scripts/update_dusky/update_dusky.sh", parent_ref="menu_updater", extended_help="**Trigger Update**\n\nShell script executed on interaction to launch the update terminal."),
 
         # =====================================================================
         # GROUP: OSD (On-Screen Display for Volume/Brightness)
         # =====================================================================
         ConfigItem(
             label="OSD", key="menu_osd", scope="DEFAULT", type_="menu", default=None, is_parent=True, group="OSD",
-            extended_help="**On-Screen Display**\n\nControls the popup aesthetic for hardware changes like Volume or Brightness."
+            extended_help="**On-Screen Display**\n\nControls the popup aesthetic for hardware changes like Volume or Brightness. These specifically target notifications pushed with `app-name=OSD`."
         ),
-        ConfigItem(label="Anchor", key="anchor", scope="app-name=OSD", type_="cycle", default="bottom-center", options=["top-right", "top-center", "top-left", "bottom-right", "bottom-center", "bottom-left", "center-right", "center-left", "center"], parent_ref="menu_osd"),
-        ConfigItem(label="Width", key="width", scope="app-name=OSD", type_="int", default=242, min_val=50, max_val=800, step=2, parent_ref="menu_osd"),
-        ConfigItem(label="Height", key="height", scope="app-name=OSD", type_="int", default=48, min_val=10, max_val=200, step=2, parent_ref="menu_osd"),
-        ConfigItem(label="Outer", key="outer-margin", scope="app-name=OSD", type_="string", default="0,0,0,0", parent_ref="menu_osd"),
-        ConfigItem(label="Margin", key="margin", scope="app-name=OSD", type_="string", default="0", parent_ref="menu_osd"),
-        ConfigItem(label="Padding", key="padding", scope="app-name=OSD", type_="string", default="0", parent_ref="menu_osd"),
-        ConfigItem(label="Radius", key="border-radius", scope="app-name=OSD", type_="int", default=24, min_val=0, max_val=50, step=1, parent_ref="menu_osd"),
-        ConfigItem(label="Size", key="border-size", scope="app-name=OSD", type_="int", default=0, min_val=0, max_val=10, step=1, parent_ref="menu_osd"),
-        ConfigItem(label="Icons", key="icons", scope="app-name=OSD", type_="bool", default=True, parent_ref="menu_osd"),
-        ConfigItem(label="Align", key="text-alignment", scope="app-name=OSD", type_="cycle", default="center", options=["left", "center", "right"], parent_ref="menu_osd"),
-        ConfigItem(label="Timeout", key="default-timeout", scope="app-name=OSD", type_="int", default=1000, min_val=0, max_val=10000, step=100, parent_ref="menu_osd"),
-        ConfigItem(label="OnClick", key="on-button-left", scope="app-name=OSD", type_="string", default="invoke-default-action", parent_ref="menu_osd"),
-        ConfigItem(label="Background", key="background-color", scope="app-name=OSD", type_="color", default="#00000000", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_osd"),
-        ConfigItem(label="Text", key="text-color", scope="app-name=OSD", type_="color", default="{{colors.on_surface.default.hex}}ff", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_osd"),
-        ConfigItem(label="Border", key="border-color", scope="app-name=OSD", type_="color", default="{{colors.outline.default.hex}}33", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_osd"),
+        ConfigItem(label="Anchor", key="anchor", scope="app-name=OSD", type_="cycle", default="bottom-center", options=["top-right", "top-center", "top-left", "bottom-right", "bottom-center", "bottom-left", "center-right", "center-left", "center"], parent_ref="menu_osd", extended_help="**OSD Position**\n\nWhere the Volume/Brightness overlay anchors on the display."),
+        ConfigItem(label="Width", key="width", scope="app-name=OSD", type_="int", default=242, min_val=50, max_val=800, step=2, parent_ref="menu_osd", extended_help="**OSD Pixel Width**\n\nTotal width allocated for the progress bar and icon."),
+        ConfigItem(label="Height", key="height", scope="app-name=OSD", type_="int", default=48, min_val=10, max_val=200, step=2, parent_ref="menu_osd", extended_help="**OSD Pixel Height**\n\nTotal thickness of the hardware overlay."),
+        ConfigItem(label="Outer", key="outer-margin", scope="app-name=OSD", type_="string", default="0,0,0,0", parent_ref="menu_osd", extended_help="**OSD Offset Margin**\n\nPushes the OSD inward from the screen edge."),
+        ConfigItem(label="Margin", key="margin", scope="app-name=OSD", type_="string", default="0", parent_ref="menu_osd", extended_help="**OSD Stack Gap**\n\nGap generated if multiple OSD notifications stack up (rare)."),
+        ConfigItem(label="Padding", key="padding", scope="app-name=OSD", type_="string", default="0", parent_ref="menu_osd", extended_help="**OSD Internal Padding**\n\nSpace between the progress bar and the external popup border."),
+        ConfigItem(label="Radius", key="border-radius", scope="app-name=OSD", type_="int", default=24, min_val=0, max_val=50, step=1, parent_ref="menu_osd", extended_help="**OSD Rounding**\n\nCorner radius specifically for the hardware popup."),
+        ConfigItem(label="Size", key="border-size", scope="app-name=OSD", type_="int", default=0, min_val=0, max_val=10, step=1, parent_ref="menu_osd", extended_help="**OSD Border Stroke**\n\nThickness of the outer border ring."),
+        ConfigItem(label="Icons", key="icons", scope="app-name=OSD", type_="bool", default=True, parent_ref="menu_osd", extended_help="**OSD Icon Toggle**\n\nDetermines whether the volume speaker or sun icon renders."),
+        ConfigItem(label="Align", key="text-alignment", scope="app-name=OSD", type_="cycle", default="center", options=["left", "center", "right"], parent_ref="menu_osd", extended_help="**OSD Alignment**\n\nJustification of text elements inside the OSD widget."),
+        ConfigItem(label="Timeout", key="default-timeout", scope="app-name=OSD", type_="int", default=1000, min_val=0, max_val=10000, step=100, parent_ref="menu_osd", extended_help="**OSD Lifespan**\n\nHow rapidly the widget fades after scrolling the mouse wheel or hitting a media key."),
+        ConfigItem(label="OnClick", key="on-button-left", scope="app-name=OSD", type_="string", default="invoke-default-action", parent_ref="menu_osd", extended_help="**OSD Left Click**\n\nAction executed if the user physically clicks the hardware OSD popup."),
+        ConfigItem(label="Background", key="background-color", scope="app-name=OSD", type_="color", default="#00000000", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_osd", extended_help="**OSD Fill**\n\nBase color of the widget (Often transparent)." + ALPHA_HELP),
+        ConfigItem(label="Text", key="text-color", scope="app-name=OSD", type_="color", default="{{colors.on_surface.default.hex}}ff", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_osd", extended_help="**OSD Typography**\n\nColor for internal text values." + ALPHA_HELP),
+        ConfigItem(label="Border", key="border-color", scope="app-name=OSD", type_="color", default="{{colors.outline.default.hex}}33", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_osd", extended_help="**OSD Border Color**\n\nStroke color wrapped around the hardware widget." + ALPHA_HELP),
 
         # =====================================================================
         # GROUP: KEYS (Keyboard layout popup)
         # =====================================================================
         ConfigItem(
             label="Keys", key="menu_keys", scope="DEFAULT", type_="menu", default=None, is_parent=True, group="Keys",
-            extended_help="**Language & Layout Display**\n\nThe quick popup indicating language/layout swaps."
+            extended_help="**Keyboard Layout Display**\n\nThe quick popup indicating language or keyboard layout swaps. Targets notifications pushed with `app-name=dusky-keys`."
         ),
-        ConfigItem(label="Anchor", key="anchor", scope="app-name=dusky-keys", type_="cycle", default="bottom-center", options=["top-right", "top-center", "top-left", "bottom-right", "bottom-center", "bottom-left", "center-right", "center-left", "center"], parent_ref="menu_keys"),
-        ConfigItem(label="Width", key="width", scope="app-name=dusky-keys", type_="int", default=200, min_val=50, max_val=800, step=10, parent_ref="menu_keys"),
-        ConfigItem(label="Height", key="height", scope="app-name=dusky-keys", type_="int", default=40, min_val=10, max_val=200, step=2, parent_ref="menu_keys"),
-        ConfigItem(label="Margin", key="margin", scope="app-name=dusky-keys", type_="string", default="0,0,0,0", parent_ref="menu_keys"),
-        ConfigItem(label="Padding", key="padding", scope="app-name=dusky-keys", type_="string", default="0", parent_ref="menu_keys"),
-        ConfigItem(label="Size", key="border-size", scope="app-name=dusky-keys", type_="int", default=0, min_val=0, max_val=10, step=1, parent_ref="menu_keys"),
-        ConfigItem(label="Radius", key="border-radius", scope="app-name=dusky-keys", type_="int", default=20, min_val=0, max_val=50, step=1, parent_ref="menu_keys"),
-        ConfigItem(label="Icons", key="icons", scope="app-name=dusky-keys", type_="bool", default=False, parent_ref="menu_keys"),
-        ConfigItem(label="Align", key="text-alignment", scope="app-name=dusky-keys", type_="cycle", default="center", options=["left", "center", "right"], parent_ref="menu_keys"),
-        ConfigItem(label="Font", key="font", scope="app-name=dusky-keys", type_="string", default="monospace 14", parent_ref="menu_keys"),
-        ConfigItem(label="Format", key="format", scope="app-name=dusky-keys", type_="string", default="%s", parent_ref="menu_keys"),
-        ConfigItem(label="Timeout", key="default-timeout", scope="app-name=dusky-keys", type_="int", default=1500, min_val=0, max_val=10000, step=100, parent_ref="menu_keys"),
-        ConfigItem(label="Background", key="background-color", scope="app-name=dusky-keys", type_="color", default="{{colors.surface.default.hex}}66", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_keys"),
-        ConfigItem(label="Text", key="text-color", scope="app-name=dusky-keys", type_="color", default="{{colors.on_surface.default.hex}}", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_keys"),
-        ConfigItem(label="Border", key="border-color", scope="app-name=dusky-keys", type_="color", default="{{colors.outline_variant.default.hex}}66", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_keys"),
+        ConfigItem(label="Anchor", key="anchor", scope="app-name=dusky-keys", type_="cycle", default="bottom-center", options=["top-right", "top-center", "top-left", "bottom-right", "bottom-center", "bottom-left", "center-right", "center-left", "center"], parent_ref="menu_keys", extended_help="**Keys Position**\n\nScreen anchor for the layout notification."),
+        ConfigItem(label="Width", key="width", scope="app-name=dusky-keys", type_="int", default=200, min_val=50, max_val=800, step=10, parent_ref="menu_keys", extended_help="**Keys Width**\n\nWidth of the layout text box."),
+        ConfigItem(label="Height", key="height", scope="app-name=dusky-keys", type_="int", default=40, min_val=10, max_val=200, step=2, parent_ref="menu_keys", extended_help="**Keys Height**\n\nHeight of the layout text box."),
+        ConfigItem(label="Margin", key="margin", scope="app-name=dusky-keys", type_="string", default="0,0,0,0", parent_ref="menu_keys", extended_help="**Keys Margin**\n\nMargin parameters controlling placement offset."),
+        ConfigItem(label="Padding", key="padding", scope="app-name=dusky-keys", type_="string", default="0", parent_ref="menu_keys", extended_help="**Keys Padding**\n\nInternal spacing inside the layout text box."),
+        ConfigItem(label="Size", key="border-size", scope="app-name=dusky-keys", type_="int", default=0, min_val=0, max_val=10, step=1, parent_ref="menu_keys", extended_help="**Keys Border Thickness**\n\nStroke thickness for the popup."),
+        ConfigItem(label="Radius", key="border-radius", scope="app-name=dusky-keys", type_="int", default=20, min_val=0, max_val=50, step=1, parent_ref="menu_keys", extended_help="**Keys Corner Smoothing**\n\nRounding applied to the layout indicator."),
+        ConfigItem(label="Icons", key="icons", scope="app-name=dusky-keys", type_="bool", default=False, parent_ref="menu_keys", extended_help="**Keys Icons**\n\nToggles display of keyboard/language icons."),
+        ConfigItem(label="Align", key="text-alignment", scope="app-name=dusky-keys", type_="cycle", default="center", options=["left", "center", "right"], parent_ref="menu_keys", extended_help="**Keys Text Alignment**\n\nJustification of the layout string."),
+        ConfigItem(label="Font", key="font", scope="app-name=dusky-keys", type_="string", default="monospace 14", parent_ref="menu_keys", extended_help="**Keys Font Override**\n\nCustom typography solely for this specific popup."),
+        ConfigItem(label="Format", key="format", scope="app-name=dusky-keys", type_="string", default="%s", parent_ref="menu_keys", extended_help="**Keys Text Format**\n\nStructures the text payload (e.g., %s = summary only)."),
+        ConfigItem(label="Timeout", key="default-timeout", scope="app-name=dusky-keys", type_="int", default=1500, min_val=0, max_val=10000, step=100, parent_ref="menu_keys", extended_help="**Keys Lifespan**\n\nHow rapidly the layout popup clears."),
+        ConfigItem(label="Background", key="background-color", scope="app-name=dusky-keys", type_="color", default="{{colors.surface.default.hex}}66", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_keys", extended_help="**Keys Background Fill**" + ALPHA_HELP),
+        ConfigItem(label="Text", key="text-color", scope="app-name=dusky-keys", type_="color", default="{{colors.on_surface.default.hex}}", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_keys", extended_help="**Keys Text Color**" + ALPHA_HELP),
+        ConfigItem(label="Border", key="border-color", scope="app-name=dusky-keys", type_="color", default="{{colors.outline_variant.default.hex}}66", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_keys", extended_help="**Keys Border Color**" + ALPHA_HELP),
 
         # =====================================================================
         # GROUP: CAVA (Audio Visualizer Applets)
         # =====================================================================
         ConfigItem(
             label="Cava", key="menu_cava", scope="DEFAULT", type_="menu", default=None, is_parent=True, group="Cava",
-            extended_help="**Audio Visualizer**\n\nThe primary animated audio visualizer popup block."
+            extended_help="**Audio Visualizer Block**\n\nThe primary animated audio visualizer popup block. Configures notifications pushed with `app-name=dusky-cava`."
         ),
-        ConfigItem(label="Anchor", key="anchor", scope="app-name=dusky-cava", type_="cycle", default="bottom-center", options=["top-right", "top-center", "top-left", "bottom-right", "bottom-center", "bottom-left", "center-right", "center-left", "center"], parent_ref="menu_cava"),
-        ConfigItem(label="Width", key="width", scope="app-name=dusky-cava", type_="int", default=380, min_val=100, max_val=800, step=10, parent_ref="menu_cava"),
-        ConfigItem(label="Height", key="height", scope="app-name=dusky-cava", type_="int", default=40, min_val=10, max_val=200, step=2, parent_ref="menu_cava"),
-        ConfigItem(label="Margin", key="margin", scope="app-name=dusky-cava", type_="string", default="0,0,20,0", parent_ref="menu_cava"),
-        ConfigItem(label="Padding", key="padding", scope="app-name=dusky-cava", type_="string", default="0", parent_ref="menu_cava"),
-        ConfigItem(label="Size", key="border-size", scope="app-name=dusky-cava", type_="int", default=2, min_val=0, max_val=10, step=1, parent_ref="menu_cava"),
-        ConfigItem(label="Radius", key="border-radius", scope="app-name=dusky-cava", type_="int", default=20, min_val=0, max_val=50, step=1, parent_ref="menu_cava"),
-        ConfigItem(label="Icons", key="icons", scope="app-name=dusky-cava", type_="bool", default=False, parent_ref="menu_cava"),
-        ConfigItem(label="Align", key="text-alignment", scope="app-name=dusky-cava", type_="cycle", default="center", options=["left", "center", "right"], parent_ref="menu_cava"),
-        ConfigItem(label="Font", key="font", scope="app-name=dusky-cava", type_="string", default="monospace 22", parent_ref="menu_cava"),
-        ConfigItem(label="Format", key="format", scope="app-name=dusky-cava", type_="string", default="%s", parent_ref="menu_cava"),
-        ConfigItem(label="Timeout", key="default-timeout", scope="app-name=dusky-cava", type_="int", default=0, min_val=0, max_val=10000, step=100, parent_ref="menu_cava"),
-        ConfigItem(label="Background", key="background-color", scope="app-name=dusky-cava", type_="color", default="{{colors.surface_container.default.hex}}ff", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_cava"),
-        ConfigItem(label="Text", key="text-color", scope="app-name=dusky-cava", type_="color", default="{{colors.primary.default.hex}}", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_cava"),
-        ConfigItem(label="Border", key="border-color", scope="app-name=dusky-cava", type_="color", default="{{colors.primary_container.default.hex}}", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_cava"),
+        ConfigItem(label="Anchor", key="anchor", scope="app-name=dusky-cava", type_="cycle", default="bottom-center", options=["top-right", "top-center", "top-left", "bottom-right", "bottom-center", "bottom-left", "center-right", "center-left", "center"], parent_ref="menu_cava", extended_help="**Cava Position**\n\nAnchoring target for the visualizer block."),
+        ConfigItem(label="Width", key="width", scope="app-name=dusky-cava", type_="int", default=380, min_val=100, max_val=800, step=10, parent_ref="menu_cava", extended_help="**Cava Box Width**\n\nHorizontal size of the visualizer spectrum box."),
+        ConfigItem(label="Height", key="height", scope="app-name=dusky-cava", type_="int", default=40, min_val=10, max_val=200, step=2, parent_ref="menu_cava", extended_help="**Cava Box Height**\n\nVertical limit for the audio spectrum output."),
+        ConfigItem(label="Margin", key="margin", scope="app-name=dusky-cava", type_="string", default="0,0,20,0", parent_ref="menu_cava", extended_help="**Cava Offset Margin**\n\nSpacing pushing the visualizer away from the screen boundaries."),
+        ConfigItem(label="Padding", key="padding", scope="app-name=dusky-cava", type_="string", default="0", parent_ref="menu_cava", extended_help="**Cava Internal Padding**\n\nSpace between the animation bars and the bounding box."),
+        ConfigItem(label="Size", key="border-size", scope="app-name=dusky-cava", type_="int", default=2, min_val=0, max_val=10, step=1, parent_ref="menu_cava", extended_help="**Cava Border Thickness**\n\nThickness of the framing surrounding the visualization."),
+        ConfigItem(label="Radius", key="border-radius", scope="app-name=dusky-cava", type_="int", default=20, min_val=0, max_val=50, step=1, parent_ref="menu_cava", extended_help="**Cava Corner Smoothing**\n\nApplies rounded arcs to the visualizer box."),
+        ConfigItem(label="Icons", key="icons", scope="app-name=dusky-cava", type_="bool", default=False, parent_ref="menu_cava", extended_help="**Cava Icon Block**\n\nUsually set to OFF to prevent icons from disrupting the spectrum text formatting."),
+        ConfigItem(label="Align", key="text-alignment", scope="app-name=dusky-cava", type_="cycle", default="center", options=["left", "center", "right"], parent_ref="menu_cava", extended_help="**Cava Alignment**\n\nCenters the bouncing visualizer text blocks."),
+        ConfigItem(label="Font", key="font", scope="app-name=dusky-cava", type_="string", default="monospace 22", parent_ref="menu_cava", extended_help="**Cava Block Font**\n\nSpecifically scales the font used for the block characters simulating the spectrum."),
+        ConfigItem(label="Format", key="format", scope="app-name=dusky-cava", type_="string", default="%s", parent_ref="menu_cava", extended_help="**Cava Payload**\n\nDetermines exactly what data the visualizer displays."),
+        ConfigItem(label="Timeout", key="default-timeout", scope="app-name=dusky-cava", type_="int", default=0, min_val=0, max_val=10000, step=100, parent_ref="menu_cava", extended_help="**Cava Refresh Sync**\n\nUsually 0, dictating that the script handles the timeout frames."),
+        ConfigItem(label="Background", key="background-color", scope="app-name=dusky-cava", type_="color", default="{{colors.surface_container.default.hex}}ff", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_cava", extended_help="**Cava Fill Color**" + ALPHA_HELP),
+        ConfigItem(label="Text", key="text-color", scope="app-name=dusky-cava", type_="color", default="{{colors.primary.default.hex}}", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_cava", extended_help="**Cava Animation Color**\n\nThe color of the active spectrum bars." + ALPHA_HELP),
+        ConfigItem(label="Border", key="border-color", scope="app-name=dusky-cava", type_="color", default="{{colors.primary_container.default.hex}}", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_cava", extended_help="**Cava Border Color**" + ALPHA_HELP),
 
         ConfigItem(
             label="Alert", key="menu_cava_alert", scope="DEFAULT", type_="menu", default=None, is_parent=True, group="Cava",
-            extended_help="**Cava Prompts**\n\nNotification alerts originating directly from the visualizer scripts."
+            extended_help="**Cava System Prompts**\n\nNotification alerts originating directly from the visualizer scripts (e.g. Script errors or toggle confirmations)."
         ),
-        ConfigItem(label="Anchor", key="anchor", scope="app-name=dusky-cava-alert", type_="cycle", default="bottom-center", options=["top-right", "top-center", "top-left", "bottom-right", "bottom-center", "bottom-left", "center-right", "center-left", "center"], parent_ref="menu_cava_alert"),
-        ConfigItem(label="Width", key="width", scope="app-name=dusky-cava-alert", type_="int", default=300, min_val=50, max_val=800, step=10, parent_ref="menu_cava_alert"),
-        ConfigItem(label="Height", key="height", scope="app-name=dusky-cava-alert", type_="int", default=40, min_val=10, max_val=200, step=2, parent_ref="menu_cava_alert"),
-        ConfigItem(label="Margin", key="margin", scope="app-name=dusky-cava-alert", type_="string", default="0,0,20,0", parent_ref="menu_cava_alert"),
-        ConfigItem(label="Padding", key="padding", scope="app-name=dusky-cava-alert", type_="string", default="0", parent_ref="menu_cava_alert"),
-        ConfigItem(label="Radius", key="border-radius", scope="app-name=dusky-cava-alert", type_="int", default=20, min_val=0, max_val=50, step=1, parent_ref="menu_cava_alert"),
-        ConfigItem(label="Align", key="text-alignment", scope="app-name=dusky-cava-alert", type_="cycle", default="center", options=["left", "center", "right"], parent_ref="menu_cava_alert"),
-        ConfigItem(label="Font", key="font", scope="app-name=dusky-cava-alert", type_="string", default="monospace 12", parent_ref="menu_cava_alert"),
-        ConfigItem(label="Timeout", key="default-timeout", scope="app-name=dusky-cava-alert", type_="int", default=3000, min_val=0, max_val=10000, step=100, parent_ref="menu_cava_alert"),
-        ConfigItem(label="Background", key="background-color", scope="app-name=dusky-cava-alert", type_="color", default="{{colors.tertiary_container.default.hex}}ff", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_cava_alert"),
-        ConfigItem(label="Text", key="text-color", scope="app-name=dusky-cava-alert", type_="color", default="{{colors.on_tertiary_container.default.hex}}", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_cava_alert"),
+        ConfigItem(label="Anchor", key="anchor", scope="app-name=dusky-cava-alert", type_="cycle", default="bottom-center", options=["top-right", "top-center", "top-left", "bottom-right", "bottom-center", "bottom-left", "center-right", "center-left", "center"], parent_ref="menu_cava_alert", extended_help="**Cava Alert Position**\n\nWhere visualizer error/info popups display."),
+        ConfigItem(label="Width", key="width", scope="app-name=dusky-cava-alert", type_="int", default=300, min_val=50, max_val=800, step=10, parent_ref="menu_cava_alert", extended_help="**Cava Alert Width**\n\nWidth of the alert text box."),
+        ConfigItem(label="Height", key="height", scope="app-name=dusky-cava-alert", type_="int", default=40, min_val=10, max_val=200, step=2, parent_ref="menu_cava_alert", extended_help="**Cava Alert Height**\n\nVertical limit for the alert box."),
+        ConfigItem(label="Margin", key="margin", scope="app-name=dusky-cava-alert", type_="string", default="0,0,20,0", parent_ref="menu_cava_alert", extended_help="**Cava Alert Margin**\n\nScreen offset parameters."),
+        ConfigItem(label="Padding", key="padding", scope="app-name=dusky-cava-alert", type_="string", default="0", parent_ref="menu_cava_alert", extended_help="**Cava Alert Padding**\n\nInternal spacing for alert text."),
+        ConfigItem(label="Radius", key="border-radius", scope="app-name=dusky-cava-alert", type_="int", default=20, min_val=0, max_val=50, step=1, parent_ref="menu_cava_alert", extended_help="**Cava Alert Smoothing**\n\nRounded corners for the alert box."),
+        ConfigItem(label="Align", key="text-alignment", scope="app-name=dusky-cava-alert", type_="cycle", default="center", options=["left", "center", "right"], parent_ref="menu_cava_alert", extended_help="**Cava Alert Justification**\n\nCenters the prompt text."),
+        ConfigItem(label="Font", key="font", scope="app-name=dusky-cava-alert", type_="string", default="monospace 12", parent_ref="menu_cava_alert", extended_help="**Cava Alert Font**\n\nTypography settings for prompt text."),
+        ConfigItem(label="Timeout", key="default-timeout", scope="app-name=dusky-cava-alert", type_="int", default=3000, min_val=0, max_val=10000, step=100, parent_ref="menu_cava_alert", extended_help="**Cava Alert Lifespan**\n\nHow long informational prompts stay visible."),
+        ConfigItem(label="Background", key="background-color", scope="app-name=dusky-cava-alert", type_="color", default="{{colors.tertiary_container.default.hex}}ff", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_cava_alert", extended_help="**Cava Alert Fill**" + ALPHA_HELP),
+        ConfigItem(label="Text", key="text-color", scope="app-name=dusky-cava-alert", type_="color", default="{{colors.on_tertiary_container.default.hex}}", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_cava_alert", extended_help="**Cava Alert Text Color**" + ALPHA_HELP),
 
         # =====================================================================
         # GROUP: GLANCE (Corner Dashboard)
         # =====================================================================
         ConfigItem(
             label="Glance", key="menu_glance", scope="DEFAULT", type_="menu", default=None, is_parent=True, group="Glance",
-            extended_help="**Dusky Glance Panel**\n\nThe floating corner dashboard widget displaying active system metrics."
+            extended_help="**Dusky Glance Panel**\n\nThe floating corner dashboard widget displaying active system metrics (RAM, CPU, Net). Configures `app-name=dusky-glance`."
         ),
-        ConfigItem(label="Anchor", key="anchor", scope="app-name=dusky-glance", type_="cycle", default="bottom-right", options=["top-right", "top-center", "top-left", "bottom-right", "bottom-center", "bottom-left", "center-right", "center-left", "center"], parent_ref="menu_glance"),
-        ConfigItem(label="Width", key="width", scope="app-name=dusky-glance", type_="int", default=240, min_val=50, max_val=500, step=10, parent_ref="menu_glance"),
-        ConfigItem(label="Height", key="height", scope="app-name=dusky-glance", type_="int", default=40, min_val=20, max_val=200, step=2, parent_ref="menu_glance"),
-        ConfigItem(label="Margin", key="margin", scope="app-name=dusky-glance", type_="string", default="0,0,0,0", parent_ref="menu_glance"),
-        ConfigItem(label="Padding", key="padding", scope="app-name=dusky-glance", type_="string", default="0", parent_ref="menu_glance"),
-        ConfigItem(label="Size", key="border-size", scope="app-name=dusky-glance", type_="int", default=0, min_val=0, max_val=10, step=1, parent_ref="menu_glance"),
-        ConfigItem(label="Radius", key="border-radius", scope="app-name=dusky-glance", type_="int", default=20, min_val=0, max_val=50, step=1, parent_ref="menu_glance"),
-        ConfigItem(label="Icons", key="icons", scope="app-name=dusky-glance", type_="bool", default=False, parent_ref="menu_glance"),
-        ConfigItem(label="Align", key="text-alignment", scope="app-name=dusky-glance", type_="cycle", default="right", options=["left", "center", "right"], parent_ref="menu_glance"),
-        ConfigItem(label="Format", key="format", scope="app-name=dusky-glance", type_="string", default="%b", parent_ref="menu_glance"),
-        ConfigItem(label="OnClick", key="on-button-left", scope="app-name=dusky-glance", type_="string", default="exec bash -c \"pkill rofi; uwsm-app -- $HOME/user_scripts/rofi/dusky_glance.sh\"", parent_ref="menu_glance"),
-        ConfigItem(label="Timeout", key="default-timeout", scope="app-name=dusky-glance", type_="int", default=0, min_val=0, max_val=10000, step=100, parent_ref="menu_glance"),
-        ConfigItem(label="Background", key="background-color", scope="app-name=dusky-glance", type_="color", default="#00000000", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_glance"),
-        ConfigItem(label="Text", key="text-color", scope="app-name=dusky-glance", type_="color", default="{{colors.primary.default.hex}}", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_glance"),
-        ConfigItem(label="Border", key="border-color", scope="app-name=dusky-glance", type_="color", default="{{colors.outline.default.hex}}", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_glance"),
+        ConfigItem(label="Anchor", key="anchor", scope="app-name=dusky-glance", type_="cycle", default="bottom-right", options=["top-right", "top-center", "top-left", "bottom-right", "bottom-center", "bottom-left", "center-right", "center-left", "center"], parent_ref="menu_glance", extended_help="**Glance Position**\n\nThe screen corner the dashboard widget anchors into."),
+        ConfigItem(label="Width", key="width", scope="app-name=dusky-glance", type_="int", default=240, min_val=50, max_val=500, step=10, parent_ref="menu_glance", extended_help="**Glance Dimensions**\n\nWidth of the dashboard widget."),
+        ConfigItem(label="Height", key="height", scope="app-name=dusky-glance", type_="int", default=40, min_val=20, max_val=200, step=2, parent_ref="menu_glance", extended_help="**Glance Height**\n\nHeight of the dashboard widget."),
+        ConfigItem(label="Margin", key="margin", scope="app-name=dusky-glance", type_="string", default="0,0,0,0", parent_ref="menu_glance", extended_help="**Glance Offset**\n\nSpatiotemporal margins dictating distance from the screen edge."),
+        ConfigItem(label="Padding", key="padding", scope="app-name=dusky-glance", type_="string", default="0", parent_ref="menu_glance", extended_help="**Glance Padding**\n\nInternal text spacing inside the dashboard frame."),
+        ConfigItem(label="Size", key="border-size", scope="app-name=dusky-glance", type_="int", default=0, min_val=0, max_val=10, step=1, parent_ref="menu_glance", extended_help="**Glance Outline**\n\nThickness of the dashboard bounding stroke."),
+        ConfigItem(label="Radius", key="border-radius", scope="app-name=dusky-glance", type_="int", default=20, min_val=0, max_val=50, step=1, parent_ref="menu_glance", extended_help="**Glance Curvature**\n\nRounded edges applied to the dashboard widget."),
+        ConfigItem(label="Icons", key="icons", scope="app-name=dusky-glance", type_="bool", default=False, parent_ref="menu_glance", extended_help="**Glance Imagery**\n\nToggles dynamic metrics icons within the string."),
+        ConfigItem(label="Align", key="text-alignment", scope="app-name=dusky-glance", type_="cycle", default="right", options=["left", "center", "right"], parent_ref="menu_glance", extended_help="**Glance Alignment**\n\nJustifies the active metrics text output block."),
+        ConfigItem(label="Format", key="format", scope="app-name=dusky-glance", type_="string", default="%b", parent_ref="menu_glance", extended_help="**Glance Formatting**\n\nInterprets the data body string generated by the daemon script."),
+        ConfigItem(label="OnClick", key="on-button-left", scope="app-name=dusky-glance", type_="string", default="exec bash -c \"pkill rofi; uwsm-app -- $HOME/user_scripts/rofi/dusky_glance.sh\"", parent_ref="menu_glance", extended_help="**Glance Execute**\n\nCommand fired upon clicking the widget. Defaults to spawning the Rofi master dashboard interface."),
+        ConfigItem(label="Timeout", key="default-timeout", scope="app-name=dusky-glance", type_="int", default=0, min_val=0, max_val=10000, step=100, parent_ref="menu_glance", extended_help="**Glance Refresh Rate Sync**\n\nShould generally stay at 0, allowing the background daemon to control update ticks independently."),
+        ConfigItem(label="Background", key="background-color", scope="app-name=dusky-glance", type_="color", default="#00000000", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_glance", extended_help="**Glance Fill Opacity**\n\nUsually fully transparent (`#00000000`) for a floating textual aesthetic."),
+        ConfigItem(label="Text", key="text-color", scope="app-name=dusky-glance", type_="color", default="{{colors.primary.default.hex}}", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_glance", extended_help="**Glance Typographic Color**" + ALPHA_HELP),
+        ConfigItem(label="Border", key="border-color", scope="app-name=dusky-glance", type_="color", default="{{colors.outline.default.hex}}", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_glance", extended_help="**Glance Stroke Color**" + ALPHA_HELP),
 
         ConfigItem(
             label="Alert", key="menu_glance_alert", scope="DEFAULT", type_="menu", default=None, is_parent=True, group="Glance",
-            extended_help="**Glance System Alerts**\n\nPopup alerts sent from the Glance background daemon (e.g., Battery Warnings)."
+            extended_help="**Glance System Alerts**\n\nPopup alerts sent from the Glance background daemon (e.g., Critical Battery Warnings, Hardware detachments)."
         ),
-        ConfigItem(label="Anchor", key="anchor", scope="app-name=dusky-glance-alert", type_="cycle", default="top-center", options=["top-right", "top-center", "top-left", "bottom-right", "bottom-center", "bottom-left", "center-right", "center-left", "center"], parent_ref="menu_glance_alert"),
-        ConfigItem(label="Width", key="width", scope="app-name=dusky-glance-alert", type_="int", default=300, min_val=100, max_val=800, step=10, parent_ref="menu_glance_alert"),
-        ConfigItem(label="Height", key="height", scope="app-name=dusky-glance-alert", type_="int", default=80, min_val=20, max_val=200, step=4, parent_ref="menu_glance_alert"),
-        ConfigItem(label="Margin", key="margin", scope="app-name=dusky-glance-alert", type_="string", default="20,0,0,0", parent_ref="menu_glance_alert"),
-        ConfigItem(label="Padding", key="padding", scope="app-name=dusky-glance-alert", type_="string", default="10", parent_ref="menu_glance_alert"),
-        ConfigItem(label="Size", key="border-size", scope="app-name=dusky-glance-alert", type_="int", default=1, min_val=0, max_val=10, step=1, parent_ref="menu_glance_alert"),
-        ConfigItem(label="Radius", key="border-radius", scope="app-name=dusky-glance-alert", type_="int", default=12, min_val=0, max_val=50, step=1, parent_ref="menu_glance_alert"),
-        ConfigItem(label="Icons", key="icons", scope="app-name=dusky-glance-alert", type_="bool", default=True, parent_ref="menu_glance_alert"),
-        ConfigItem(label="Align", key="text-alignment", scope="app-name=dusky-glance-alert", type_="cycle", default="center", options=["left", "center", "right"], parent_ref="menu_glance_alert"),
-        ConfigItem(label="Ignore", key="ignore-timeout", scope="app-name=dusky-glance-alert", type_="bool", default=True, parent_ref="menu_glance_alert"),
-        ConfigItem(label="OnClick", key="on-button-left", scope="app-name=dusky-glance-alert", type_="string", default="dismiss", parent_ref="menu_glance_alert"),
-        ConfigItem(label="Background", key="background-color", scope="app-name=dusky-glance-alert", type_="color", default="{{colors.secondary_container.default.hex}}ee", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_glance_alert"),
-        ConfigItem(label="Text", key="text-color", scope="app-name=dusky-glance-alert", type_="color", default="{{colors.on_secondary_container.default.hex}}", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_glance_alert"),
-        ConfigItem(label="Border", key="border-color", scope="app-name=dusky-glance-alert", type_="color", default="{{colors.secondary.default.hex}}", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_glance_alert"),
+        ConfigItem(label="Anchor", key="anchor", scope="app-name=dusky-glance-alert", type_="cycle", default="top-center", options=["top-right", "top-center", "top-left", "bottom-right", "bottom-center", "bottom-left", "center-right", "center-left", "center"], parent_ref="menu_glance_alert", extended_help="**Alert Display Target**\n\nWhere major hardware warnings drop from on screen."),
+        ConfigItem(label="Width", key="width", scope="app-name=dusky-glance-alert", type_="int", default=300, min_val=100, max_val=800, step=10, parent_ref="menu_glance_alert", extended_help="**Alert Breadth**\n\nTotal allocated width for hardware warning popups."),
+        ConfigItem(label="Height", key="height", scope="app-name=dusky-glance-alert", type_="int", default=80, min_val=20, max_val=200, step=4, parent_ref="menu_glance_alert", extended_help="**Alert Elevation**\n\nTotal allocated height for hardware warning popups."),
+        ConfigItem(label="Margin", key="margin", scope="app-name=dusky-glance-alert", type_="string", default="20,0,0,0", parent_ref="menu_glance_alert", extended_help="**Alert Offset**\n\nCSS string isolating the popup from edges."),
+        ConfigItem(label="Padding", key="padding", scope="app-name=dusky-glance-alert", type_="string", default="10", parent_ref="menu_glance_alert", extended_help="**Alert Internal Guard**\n\nKeeps text away from the alert border."),
+        ConfigItem(label="Size", key="border-size", scope="app-name=dusky-glance-alert", type_="int", default=1, min_val=0, max_val=10, step=1, parent_ref="menu_glance_alert", extended_help="**Alert Framing**\n\nThickness of the warning stroke."),
+        ConfigItem(label="Radius", key="border-radius", scope="app-name=dusky-glance-alert", type_="int", default=12, min_val=0, max_val=50, step=1, parent_ref="menu_glance_alert", extended_help="**Alert Softening**\n\nArc curvature for the warning popup corners."),
+        ConfigItem(label="Icons", key="icons", scope="app-name=dusky-glance-alert", type_="bool", default=True, parent_ref="menu_glance_alert", extended_help="**Alert Icon Toggle**\n\nEnsures warning insignias (like a dead battery icon) are drawn."),
+        ConfigItem(label="Align", key="text-alignment", scope="app-name=dusky-glance-alert", type_="cycle", default="center", options=["left", "center", "right"], parent_ref="menu_glance_alert", extended_help="**Alert Alignment**\n\nCenters the critical warning string natively."),
+        ConfigItem(label="Ignore", key="ignore-timeout", scope="app-name=dusky-glance-alert", type_="bool", default=True, parent_ref="menu_glance_alert", extended_help="**Force Retention**\n\nGuarantees the system warning stays on screen indefinitely until the user manually acknowledges and dismisses it."),
+        ConfigItem(label="OnClick", key="on-button-left", scope="app-name=dusky-glance-alert", type_="string", default="dismiss", parent_ref="menu_glance_alert", extended_help="**Dismiss Execution**\n\nWhat happens when left-clicked. `dismiss` acknowledges and removes the warning."),
+        ConfigItem(label="Background", key="background-color", scope="app-name=dusky-glance-alert", type_="color", default="{{colors.secondary_container.default.hex}}ee", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_glance_alert", extended_help="**Alert Dominant Background**" + ALPHA_HELP),
+        ConfigItem(label="Text", key="text-color", scope="app-name=dusky-glance-alert", type_="color", default="{{colors.on_secondary_container.default.hex}}", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_glance_alert", extended_help="**Alert Warning Text Color**" + ALPHA_HELP),
+        ConfigItem(label="Border", key="border-color", scope="app-name=dusky-glance-alert", type_="color", default="{{colors.secondary.default.hex}}", options=COLOR_OPTIONS, hints=COLOR_HINTS, parent_ref="menu_glance_alert", extended_help="**Alert Structural Stroke**" + ALPHA_HELP),
     ],
 
     # -------------------------------------------------------------------------
