@@ -355,8 +355,321 @@ Libadwaita GTK 4 Prompt
 ---
 ---
 
-> [!NOTE]- Template Schema LUA
-> ```py
+> [!NOTE]- INI schema
+> ```python
+> #!/usr/bin/env python3
+> """
+> ===============================================================================
+> DUSKY TUI: MASTER CONFIGURATION SCHEMA (INI PARADIGM)
+> ===============================================================================
+> 
+> TARGET MAPPING VISUALIZATION:
+> How `scope` and `key` instruct the engine to mutate the target INI file.
+> (e.g., pacman.conf, makepkg.conf, mako/config, etc.)
+> 
+> ===============================================================================
+> [ SCENARIO A: Standard Section Variables ]
+> ===============================================================================
+>   [options]                      <-- scope="options"
+>   HoldPkg = pacman glibc         <-- key="HoldPkg"
+> 
+> ===============================================================================
+> [ SCENARIO B: Root/Global Variables ]
+> ===============================================================================
+>   log_level = debug              <-- scope="DEFAULT", key="log_level"
+> 
+> ===============================================================================
+> [ SCENARIO C: Valueless Flags (Arch Linux style) ]
+> ===============================================================================
+>   Color                          <-- scope="DEFAULT", key="Color", type_="bool"
+>   ILoveCandy                     <-- scope="options", key="ILoveCandy", type_="bool"
+> 
+> STRICT RULES FOR SCHEMA GENERATION (CRITICAL - DO NOT VIOLATE):
+> 
+> 1. UID (Unique Identifier) Rule:
+>    - If a variable sits at the root of the target file (no section), set scope="DEFAULT".
+>    - If scope is defined, the UID is `scope.key` (e.g., "options.HoldPkg").
+>    - If scope is "DEFAULT", the UID is just the `key` (e.g., "log_level").
+>    - You MUST use the exact UID when using `parent_ref` or `preset_payload`.
+> 
+> 2. The Naming Imperative (STRICTLY ONE WORD):
+>    - TABS & GROUPS: Every `group` string and `Tab` string MUST be EXACTLY ONE WORD.
+>    - LABELS (SETTINGS): The `label` for each ConfigItem MUST be as succinct as humanly 
+>      possible, ideally ONE WORD (e.g., use "Logging" instead of "Enable System Logging").
+> 
+> 3. The Theme File Axiom (CRITICAL):
+>    - The `THEME_FILE` path must be exactly preserved (`~/.config/matugen/generated/dusky_tui.json`).
+>    - This file MUST ALWAYS exist at this exact path. Do not alter the string.
+> 
+> 4. Contiguous Grouping Rule (Do NOT interleave):
+>    - Items with the same `group` string MUST be placed immediately next to each other. 
+>    - Items with a `parent_ref` MUST be placed immediately beneath their parent in a 
+>      single, unbroken block. Do not break the visual tree.
+> 
+> 5. Structural Restrictions & Hybrid Folders (CRITICAL):
+>    - "preset" and "action" items are PURE UI constructs. They DO NOT write to the 
+>      target file. Their `key` is just an internal ID.
+>    - HYBRID FOLDERS: You can turn ANY standard item (e.g., "bool", "cycle", "int") into
+>      an expandable drop-down menu by setting `is_parent=True`. This allows the parent 
+>      header itself to hold a changeable backend value (e.g., a Master Toggle Switch).
+>    - Folders can only be ONE level deep. DO NOT nest a folder inside another folder.
+> 
+> 6. Available Types (`type_`):
+>    - "bool"   : Toggles instantly (True/False). Maps to true/false OR valueless flags.
+>    - "int"    : Numeric integer (supports min_val, max_val, step).
+>    - "float"  : Numeric decimal (supports min_val, max_val, step).
+>    - "string" : Text input (Use options=[] to provide a multiple-choice dropdown).
+>    - "cycle"  : Instant left/right cycling through an `options` list of strings.
+>    - "picker" : Opens a searchable fullscreen modal from an `options` list.
+>    - "color"  : Hex, RGB, HSL, or Matugen theme variables.
+>    - "menu"   : A pure visual folder with no value (requires `is_parent=True`, `default=None`).
+>    - "action" : Triggers a shell command (put the exact shell command string in `default=`).
+>    - "preset" : Applies multiple values at once (requires `preset_payload`, `default=None`).
+> 
+> 7. Preset Payload Strict Application (Nuclear Reset):
+>    - Presets apply a STRICT state snapshot. If you omit a key from a `preset_payload`, 
+>      the application will forcibly revert that omitted key back to its `default` value 
+>      when the preset is applied. Define ALL necessary keys in the payload.
+> 
+> 8. Multi-File & Multi-Engine Overrides (NEW):
+>    - By default, all items use the root `ENGINE_TYPE` and `TARGET_FILE`.
+>    - You can route individual items to completely different files or engines using 
+>      `target_file_override="~/.config/other.conf"` and `engine_type_override="systemd"`.
+>    - Supported engines: "ini", "lua", "systemd", "hyprlang", "trackpad", "monitor".
+> 
+> 9. Validation, Warnings, & Modals (NEW):
+>    - `confirm_message`: Requires a Yes/No dialog confirmation BEFORE mutating the value.
+>    - `warning_msg`: Adds a ⚠️ marker in the UI and a warning block to the help panel.
+>    - `popup_message`: Shows an 'OK' alert dialog AFTER the value is successfully applied.
+> ===============================================================================
+> """
+> 
+> from python.frontend.core_types import ConfigItem
+> 
+> # =============================================================================
+> # 1. CORE APPLICATION ROUTING (REQUIRED)
+> # =============================================================================
+> ENGINE_TYPE = "ini"                        # STRICTLY: "ini"
+> TARGET_FILE = "~/.config/mako/config"      # Standard INI target path
+> APP_TITLE = "Dusky Config"                 # Displayed in the TUI border
+> 
+> # =============================================================================
+> # 2. UI & ENVIRONMENT BEHAVIOR
+> # =============================================================================
+> DEFAULT_MODE = "auto"                      # "auto" (instant save) | "batch" (Ctrl+S required)
+> 
+> # STRICT REQUIREMENT: This exact path must always exist. Do not change.
+> THEME_FILE = "~/.config/matugen/generated/dusky_tui.json" 
+> 
+> ENABLE_USER_PRESETS = True                 # Allows users to save/delete profiles dynamically
+> USER_PRESETS_TAB = "Profiles"              # Must exactly match a ONE-WORD tab name below
+> 
+> # OPTIONAL: Displays a popup when the TUI is first launched
+> GLOBAL_POPUP = {
+>     "title": "Configuration Notice",
+>     "message": "Proceed with caution. Modifying these values affects system behavior.",
+>     "level": "info",           # "info" | "warning" | "danger" | "success"
+>     "require_confirm": False,  # If True, shows Cancel/Confirm buttons
+>     "cancel_quits": False      # If True, clicking Cancel exits the TUI
+> }
+> 
+> # OPTIONAL: Displays persistent warning/info boxes at the top of specific tabs
+> TAB_NOTICES = {
+>     # e.g., 2 is the index of the "Profiles" tab
+>     2: {"level": "warning", "message": "Applying profiles may immediately overwrite active settings."}
+> }
+> 
+> # =============================================================================
+> # 3. TABS DEFINITION
+> # STRICT RULE: Keep tabs ONE WORD ONLY to prevent UI clutter and wrapping.
+> # =============================================================================
+> 
+> TABS = [
+>     "Core",
+>     "Visuals",
+>     "Profiles"
+> ]
+> 
+> # =============================================================================
+> # 4. SCHEMA DEFINITION
+> # STRICT RULE: Keep `label` as close to ONE WORD as possible.
+> # =============================================================================
+> 
+> SCHEMA = {
+>     # -------------------------------------------------------------------------
+>     # TAB 0: CORE (Infrastructure & Standard Types)
+>     # -------------------------------------------------------------------------
+>     0: [
+>         ConfigItem(
+>             label="Logging",
+>             key="log_level",
+>             scope="DEFAULT",       # UID = "log_level"
+>             type_="cycle",
+>             default="info",
+>             options=["debug", "info", "warning", "error"],
+>             group="System",        # STRICT: ONE WORD ONLY
+>             extended_help="**Diagnostic Logging**\n\nSets the verbosity of the daemon's internal logs. `debug` provides the highest detail, while `error` only reports critical failures."
+>         ),
+>         ConfigItem(
+>             label="Concurrency",
+>             key="max_threads",
+>             scope="DEFAULT",       # UID = "max_threads"
+>             type_="int",
+>             default=4,
+>             min_val=1,
+>             max_val=32,
+>             step=1,
+>             group="System",
+>             extended_help="**Thread Allocation**\n\nDefines the maximum number of simultaneous threads allocated for background processing."
+>         ),
+>         ConfigItem(
+>             label="Color",         # Example of an Arch Linux pacman.conf valueless flag
+>             key="Color",
+>             scope="options",       # UID = "options.Color"
+>             type_="bool",
+>             default=True,
+>             group="Pacman",
+>             extended_help="**Color Output**\n\nA valueless boolean flag. When enabled, inserts `Color` into the INI file without an equals sign to force colorized terminal output."
+>         ),
+>     ],
+> 
+>     # -------------------------------------------------------------------------
+>     # TAB 1: VISUALS (UI Components & Hybrid Menu Folders)
+>     # -------------------------------------------------------------------------
+>     1: [
+>         ConfigItem(
+>             label="Background",
+>             key="background-color",
+>             scope="DEFAULT",       # UID = "background-color"
+>             type_="color",
+>             default="#1e1e2e",
+>             group="Theme",
+>             extended_help="**Base Background Color**\n\nDetermines the core background fill for UI elements. Accepts standard Hex codes."
+>         ),
+>         
+>         # --- HYBRID FOLDER IMPLEMENTATION ---
+>         # 1. The Parent (Holds a real backend "bool" value, acts as a folder)
+>         ConfigItem(
+>             label="Typography",
+>             key="custom_fonts", 
+>             scope="appearance",       # UID = "appearance.custom_fonts"
+>             type_="bool",             # Real boolean value
+>             default=False,
+>             is_parent=True,           # Flags this as an expandable folder
+>             expanded=False,
+>             group="Fonts",
+>             extended_help="**Typography Override**\n\nMaster switch for font enforcement. When ON, applies the nested typography values."
+>         ),
+>         # 2. Child Item A (Contiguous with parent)
+>         ConfigItem(
+>             label="Family",
+>             key="font",
+>             scope="appearance",       # UID = "appearance.font"
+>             type_="picker",        
+>             default="JetBrains Mono",
+>             options=["JetBrains Mono", "Fira Code", "Roboto", "Inter"],
+>             hints=["Monospace", "Ligatures", "Sans", "Sans"], 
+>             parent_ref="appearance.custom_fonts",  # Links to Hybrid Parent UID
+>             extended_help="**Interface Font Family**\n\nSelects the core typeface used across the system UI panels."
+>         ),
+>         # 3. Child Item B (Contiguous with parent)
+>         ConfigItem(
+>             label="Size",
+>             key="font_size",
+>             scope="appearance",       # UID = "appearance.font_size"
+>             type_="float",        
+>             default=10.0,
+>             min_val=6.0,
+>             max_val=24.0,
+>             step=0.5,
+>             parent_ref="appearance.custom_fonts",
+>             extended_help="**Base Font Size**\n\nThe root cryptographic scale parameter measured in points (pt)."
+>         ),
+>     ],
+> 
+>     # -------------------------------------------------------------------------
+>     # TAB 2: PROFILES (Advanced Controls & State Synchronization)
+>     # -------------------------------------------------------------------------
+>     2: [
+>         ConfigItem(
+>             label="Purge",
+>             key="action_clear_cache", 
+>             scope="DEFAULT",          # UID = "action_clear_cache"
+>             type_="action",
+>             default="rm -rf ~/.cache/mako/* && echo 'Cache Cleared'",
+>             group="Maintenance",
+>             warning_msg="This will permanently delete volatile cache files.",
+>             extended_help="**Cache Purge**\n\nImmediately deletes volatile application cache files via shell command."
+>         ),
+>         ConfigItem(
+>             label="Performance",
+>             key="preset_performance",     
+>             scope="DEFAULT",          # UID = "preset_performance"
+>             type_="preset",
+>             default=None,
+>             group="Orchestrator",
+>             preset_payload={
+>                 "log_level": "error",      
+>                 "appearance.custom_fonts": False,            
+>                 "max_threads": 32  
+>             },
+>             extended_help="**Performance Preset**\n\nInstantly overrides multiple settings to maximize system responsiveness. Any omitted settings are forcibly reverted to default."
+>         ),
+>         ConfigItem(
+>             label="Reset",
+>             key="preset_factory_reset",
+>             scope="DEFAULT",          # UID = "preset_factory_reset"
+>             type_="preset",
+>             default=None,
+>             group="Orchestrator",
+>             confirm_message="Are you sure you want to perform a full factory reset? All unsaved customizations will be lost.",
+>             preset_payload={
+>                 "__ALL_DEFAULTS__": True
+>             },
+>             extended_help="**Factory Reset**\n\nReverts every single configuration item across all tabs back to its originally programmed default state."
+>         ),
+>     ]
+> }
+> 
+> # =============================================================================
+> # QUICK-REFERENCE CHEAT SHEET (BULLETPROOF EDITION)
+> # =============================================================================
+> # Copy/Paste this block when building new items to ensure correct kwargs.
+> #
+> # ConfigItem(
+> #     label          = "ShortName",        # STRICT: Keep as succinct/close to one word as possible.
+> #     key            = "backend_key",
+> #     scope          = "DEFAULT",          # "backend_section" or "DEFAULT" for root/valueless keys.
+> #     type_          = "bool",             # STANDARD: bool | int | float | string | color
+> #                                          # MODALS: cycle | picker 
+> #                                          # PURE UI: action | preset | menu
+> #     default        = None,               # Native Python type MUST match type_ (e.g., True, 10, "text"). 
+> #                                          # -> For 'action', default is the shell command string. 
+> #                                          # -> For 'menu' & 'preset', default MUST be None.
+> #     options        = [],                 # Required for 'cycle'/'picker'. Triggers Hybrid Menu for int/float/string/color.
+> #     hints          = [],                 # Subtitles for 'picker' modals (length must match options list).
+> #     preset_payload = {},                 # Dict of {"scope.key": target_value}. Unlisted keys revert to default.
+> #     min_val        = None,               # Numeric lower bound (int/float).
+> #     max_val        = None,               # Numeric upper bound (int/float).
+> #     step           = None,               # Numeric step size for arrow key adjustments.
+> #     group          = "OneWord",          # STRICT: UI header string MUST BE ONE WORD.
+> #     extended_help  = "Markdown String",  # Explain what the setting does for the user's '?' panel.
+> #     is_parent      = False,              # Set True to make this item an expandable folder (Works on ANY type!).
+> #     parent_ref     = None,               # Nested UI link. MUST exactly match parent's UID format: "scope.key" (or "key" if DEFAULT).
+> #     expanded       = False,              # Default UI state for parent folders (Starts open or closed).
+> #
+> #     # --- ADVANCED VALIDATION & OVERRIDES ---
+> #     warning_msg    = None,               # Adds a ⚠️ marker and displays this warning in the help panel.
+> #     popup_message  = None,               # Shows an 'OK' alert dialog AFTER the value is applied.
+> #     confirm_message= None,               # Requires Yes/No dialog confirmation BEFORE mutation.
+> #     target_file_override = None,         # Reroutes this specific item to a different file path.
+> #     engine_type_override = None,         # Changes the parsing engine for this item (e.g., "systemd", "ini").
+> # )
+> ```
+
+
+> [!NOTE]- Lua Schema
+> ```python
 > #!/usr/bin/env python3
 > """
 > ===============================================================================
@@ -376,7 +689,7 @@ Libadwaita GTK 4 Prompt
 > ===============================================================================
 > [ SCENARIO B: If ENGINE_TYPE = "lua" (Hyprland AST) ]
 > ===============================================================================
->   1. STANDARD TABLES (hl.config)
+>   10. STANDARD TABLES (hl.config)
 >      hl.config({
 >          decoration = {
 >              rounding = 10          <-- scope="decoration", key="rounding"
@@ -386,34 +699,34 @@ Libadwaita GTK 4 Prompt
 >          }
 >      })
 > 
->   2. HYPRLAND WINDOW RULES (Mapped by 'name')
+>   11. HYPRLAND WINDOW RULES (Mapped by 'name')
 >      hl.window_rule({ name = "my_rule", rounding = 0 }) 
 >          <-- scope="window_rule/my_rule", key="rounding"
 > 
->   3. HYPRLAND WORKSPACE RULES (Mapped by 'workspace' string)
+>   12. HYPRLAND WORKSPACE RULES (Mapped by 'workspace' string)
 >      hl.workspace_rule({ workspace = "w[tv1]", border_size = 2 }) 
 >          <-- scope="workspace_rule/w[tv1]", key="border_size"
 > 
 > STRICT RULES FOR SCHEMA GENERATION (CRITICAL - DO NOT VIOLATE):
 > 
-> 4. UID (Unique Identifier) Rule:
+> 13. UID (Unique Identifier) Rule:
 >    - If a variable sits at the root of the target file (no section), set scope="DEFAULT".
 >    - If scope is defined, the UID is `scope.key` (e.g., "theme.border_active").
 >    - If scope is "DEFAULT", the UID is just the `key` (e.g., "logging").
 >    - You MUST use the exact UID when using `parent_ref` or `preset_payload`.
 > 
-> 5. Hyprland AST Context Rules (CRITICAL FOR LUA ENGINE):
+> 14. Hyprland AST Context Rules (CRITICAL FOR LUA ENGINE):
 >    - For `hl.window_rule`, the scope MUST strictly be `window_rule/<name>`. The target rule in the Lua file MUST have an explicit `name = "..."` attribute.
 >    - For `hl.workspace_rule`, the scope MUST strictly be `workspace_rule/<workspace_selector>` (e.g., `scope="workspace_rule/w[tv1]s[false]"`). 
 >    - NEVER inject artificial `name` keys into `hl.workspace_rule` target files, as the C++ compositor will reject them. The engine parses the workspace string natively.
 > 
-> 6. Contiguous Grouping Rule (Do NOT interleave):
+> 15. Contiguous Grouping Rule (Do NOT interleave):
 >    - Items with the same `group` string MUST be placed immediately next to 
 >      each other. The UI draws headers sequentially.
 >    - Items with a `parent_ref` MUST be placed immediately beneath their parent 
 >      in a single, unbroken block. Do not break the visual tree.
 > 
-> 7. Structural Restrictions & Hybrid Folders (CRITICAL):
+> 16. Structural Restrictions & Hybrid Folders (CRITICAL):
 >    - "preset" and "action" items are PURE UI constructs. They DO NOT write 
 >      to the target file. Their `key` is just an internal ID.
 >    - "menu": A PURE UI visual folder (default=None, type_="menu"). It writes nothing.
@@ -422,7 +735,7 @@ Libadwaita GTK 4 Prompt
 >      header itself to hold a changeable backend value (e.g., a Master Toggle Switch).
 >    - Folders can only be ONE level deep. DO NOT nest a folder inside another folder.
 > 
-> 8. Naming Conventions (ONE-WORD HEADERS ONLY):
+> 17. Naming Conventions (ONE-WORD HEADERS ONLY):
 >    - NO MULTI-WORD HEADERS: Every `group` name and `Tab` name MUST be strictly ONE WORD 
 >      and highly intuitive (e.g., use `Theme` instead of `Theming Subsystem`). This prevents 
 >      terminal UI clutter and wrapping issues.
@@ -430,7 +743,7 @@ Libadwaita GTK 4 Prompt
 >    - USE DESCRIPTIVE KEYS: Utilize descriptive, semantic identifiers for backend keys 
 >      (e.g., use `enable_dynamic_workspace_routing`).
 > 
-> 9. Available Types (`type_`) & Hybrid Menus:
+> 18. Available Types (`type_`) & Hybrid Menus:
 >    - "bool"   : Toggles instantly (True/False)
 >    - "int"    : Numeric integer (supports min_val, max_val, step. Use options=[] for hybrid dropdown)
 >    - "float"  : Numeric decimal (supports min_val, max_val, step. Use options=[] for hybrid dropdown)
@@ -442,7 +755,7 @@ Libadwaita GTK 4 Prompt
 >    - "action" : Triggers a shell command (put the exact shell command string in `default=`)
 >    - "preset" : Applies multiple values at once (requires `preset_payload`, `default=None`)
 > 
-> 10. Strict Type & Native Value Matching (CRITICAL FOR AST ENGINES):
+> 19. Strict Type & Native Value Matching (CRITICAL FOR AST ENGINES):
 >    - You MUST map the target configuration's native data type to the correct `type_`. 
 >    - The Python data type of the `default` argument MUST strictly match the declared `type_`:
 >      * "bool"   -> default=True (Python boolean, NOT string "true" or "True")
@@ -452,16 +765,30 @@ Libadwaita GTK 4 Prompt
 >    - For "action", `default` MUST be the exact shell command string to execute.
 >    - If using the `options` array, the array elements MUST match the native type.
 > 
-> 11. Preset Payload Strict Application (Nuclear Reset):
+> 20. Preset Payload Strict Application (Nuclear Reset):
 >    - Presets apply a STRICT state snapshot. If you omit a key from a `preset_payload`, 
 >      the application will forcibly revert that omitted key back to its `default` value 
 >      when the preset is applied. Define ALL necessary keys in the payload.
 > 
-> 12. Documentation & Help Text (extended_help):
+> 21. Documentation & Help Text (extended_help):
 >    - Every item MUST include clear, detailed `extended_help`.
 >    - Explain exactly what the item does and how the specific values affect the system.
 >    - Write it so users who have absolutely no idea what the setting does can easily configure it.
 > 
+> 22. The Theme File Axiom (CRITICAL REQUIREMENT):
+>    - The `THEME_FILE` path must be EXACTLY preserved as `~/.config/matugen/generated/dusky_tui.json`.
+>    - This file MUST ALWAYS exist at this exact path. Do not alter, abbreviate, or omit this string under any circumstances.
+> 
+> 23. Multi-File & Multi-Engine Overrides (NEW):
+>    - By default, all items use the root `ENGINE_TYPE` and `TARGET_FILE`.
+>    - You can route individual items to completely different files or engines using 
+>      `target_file_override="~/.config/other.conf"` and `engine_type_override="ini"`.
+>    - Supported engines: "ini", "lua", "systemd", "hyprlang", "trackpad", "monitor".
+> 
+> 24. Validation, Warnings, & Modals (NEW):
+>    - `confirm_message`: Requires a Yes/No dialog confirmation BEFORE mutating the value.
+>    - `warning_msg`: Adds a ⚠️ marker in the UI and a warning block to the help panel.
+>    - `popup_message`: Shows an 'OK' alert dialog AFTER the value is successfully applied.
 > ===============================================================================
 > """
 > 
@@ -478,9 +805,27 @@ Libadwaita GTK 4 Prompt
 > # 2. UI & ENVIRONMENT BEHAVIOR
 > # =============================================================================
 > DEFAULT_MODE = "auto"                      # "auto" (instant save) | "batch" (Ctrl+S required)
-> THEME_FILE = "~/.config/matugen/generated/dusky_tui.json" # Matugen color map
+> 
+> # STRICT REQUIREMENT: This exact path must always exist. Do not change or omit.
+> THEME_FILE = "~/.config/matugen/generated/dusky_tui.json"
+> 
 > ENABLE_USER_PRESETS = True                 # Allows users to save/delete profiles dynamically
 > USER_PRESETS_TAB = "Profiles"              # Must exactly match a ONE-WORD tab name below
+> 
+> # OPTIONAL: Displays a popup when the TUI is first launched
+> GLOBAL_POPUP = {
+>     "title": "Welcome to Dusky",
+>     "message": "Adjusting Wayland attributes directly interfaces with the compositor.",
+>     "level": "info",           # "info" | "warning" | "danger" | "success"
+>     "require_confirm": False,  # If True, shows Cancel/Confirm buttons
+>     "cancel_quits": False      # If True, clicking Cancel exits the TUI
+> }
+> 
+> # OPTIONAL: Displays persistent warning/info boxes at the top of specific tabs
+> TAB_NOTICES = {
+>     # e.g., 0 is the index of the "Infrastructure" tab
+>     0: {"level": "info", "message": "Core infrastructure handles system-wide compositor rules."}
+> }
 > 
 > # =============================================================================
 > # 3. TABS DEFINITION
@@ -519,6 +864,7 @@ Libadwaita GTK 4 Prompt
 >             type_="bool",
 >             default=True,
 >             group="Execution",
+>             warning_msg="Disabling this on high-refresh rate monitors may cause tearing.",
 >             extended_help="**Hardware Animations**\n\nToggles UI hardware acceleration globally. Disabling this can save battery life and reduce GPU overhead on lower-end systems or virtual machines, but interface transitions and window movements will lose their smoothness."
 >         ),
 >         ConfigItem(
@@ -653,6 +999,7 @@ Libadwaita GTK 4 Prompt
 >             type_="preset",
 >             default=None,
 >             group="System",
+>             confirm_message="Are you absolutely sure you want to revert to factory defaults? This cannot be undone.",
 >             preset_payload={
 >                 "__ALL_DEFAULTS__": True
 >             },
@@ -687,282 +1034,12 @@ Libadwaita GTK 4 Prompt
 > #     is_parent      = False,              # Set True to make this item an expandable folder (Works on ANY type!)
 > #     parent_ref     = None,               # Nested UI link. MUST exactly match parent's UID format: "scope.key" (or "key" if DEFAULT)
 > #     expanded       = False,              # Default UI state for parent folders (Starts open or closed)
-> # )
-> ```
-
-> [!NOTE]- Template Schema INI
-> ```python
-> #!/usr/bin/env python3
-> """
-> ===============================================================================
-> DUSKY TUI: MASTER CONFIGURATION SCHEMA (INI PARADIGM)
-> ===============================================================================
-> 
-> TARGET MAPPING VISUALIZATION:
-> How `scope` and `key` instruct the engine to mutate the target INI file.
-> (e.g., pacman.conf, makepkg.conf, mako/config, etc.)
-> 
-> ===============================================================================
-> [ SCENARIO A: Standard Section Variables ]
-> ===============================================================================
->   [options]                      <-- scope="options"
->   HoldPkg = pacman glibc         <-- key="HoldPkg"
-> 
-> ===============================================================================
-> [ SCENARIO B: Root/Global Variables ]
-> ===============================================================================
->   log_level = debug              <-- scope="DEFAULT", key="log_level"
-> 
-> ===============================================================================
-> [ SCENARIO C: Valueless Flags (Arch Linux style) ]
-> ===============================================================================
->   Color                          <-- scope="DEFAULT", key="Color", type_="bool"
->   ILoveCandy                     <-- scope="options", key="ILoveCandy", type_="bool"
-> 
-> STRICT RULES FOR SCHEMA GENERATION (CRITICAL - DO NOT VIOLATE):
-> 
-> 1. UID (Unique Identifier) Rule:
->    - If a variable sits at the root of the target file (no section), set scope="DEFAULT".
->    - If scope is defined, the UID is `scope.key` (e.g., "options.HoldPkg").
->    - If scope is "DEFAULT", the UID is just the `key` (e.g., "log_level").
->    - You MUST use the exact UID when using `parent_ref` or `preset_payload`.
-> 
-> 2. The Naming Imperative (STRICTLY ONE WORD):
->    - TABS & GROUPS: Every `group` string and `Tab` string MUST be EXACTLY ONE WORD.
->    - LABELS (SETTINGS): The `label` for each ConfigItem MUST be as succinct as humanly 
->      possible, ideally ONE WORD (e.g., use "Logging" instead of "Enable System Logging").
-> 
-> 3. The Theme File Axiom (CRITICAL):
->    - The `THEME_FILE` path must be exactly preserved (`~/.config/matugen/generated/dusky_tui.json`).
->    - This file MUST ALWAYS exist at this exact path. Do not alter the string.
-> 
-> 4. Contiguous Grouping Rule (Do NOT interleave):
->    - Items with the same `group` string MUST be placed immediately next to each other. 
->    - Items with a `parent_ref` MUST be placed immediately beneath their parent in a 
->      single, unbroken block. Do not break the visual tree.
-> 
-> 5. Structural Restrictions & Hybrid Folders (CRITICAL):
->    - "preset" and "action" items are PURE UI constructs. They DO NOT write to the 
->      target file. Their `key` is just an internal ID.
->    - HYBRID FOLDERS: You can turn ANY standard item (e.g., "bool", "cycle", "int") into
->      an expandable drop-down menu by setting `is_parent=True`. This allows the parent 
->      header itself to hold a changeable backend value (e.g., a Master Toggle Switch).
->    - Folders can only be ONE level deep. DO NOT nest a folder inside another folder.
-> 
-> 6. Available Types (`type_`):
->    - "bool"   : Toggles instantly (True/False). Maps to true/false OR valueless flags.
->    - "int"    : Numeric integer (supports min_val, max_val, step).
->    - "float"  : Numeric decimal (supports min_val, max_val, step).
->    - "string" : Text input (Use options=[] to provide a multiple-choice dropdown).
->    - "cycle"  : Instant left/right cycling through an `options` list of strings.
->    - "picker" : Opens a searchable fullscreen modal from an `options` list.
->    - "color"  : Hex, RGB, HSL, or Matugen theme variables.
->    - "menu"   : A pure visual folder with no value (requires `is_parent=True`, `default=None`).
->    - "action" : Triggers a shell command (put the exact shell command string in `default=`).
->    - "preset" : Applies multiple values at once (requires `preset_payload`, `default=None`).
-> 
-> 7. Preset Payload Strict Application (Nuclear Reset):
->    - Presets apply a STRICT state snapshot. If you omit a key from a `preset_payload`, 
->      the application will forcibly revert that omitted key back to its `default` value 
->      when the preset is applied. Define ALL necessary keys in the payload.
-> ===============================================================================
-> """
-> 
-> from python.frontend.core_types import ConfigItem
-> 
-> # =============================================================================
-> # 1. CORE APPLICATION ROUTING (REQUIRED)
-> # =============================================================================
-> ENGINE_TYPE = "ini"                        # STRICTLY: "ini"
-> TARGET_FILE = "~/.config/mako/config"      # Standard INI target path
-> APP_TITLE = "Dusky Config"                 # Displayed in the TUI border
-> 
-> # =============================================================================
-> # 2. UI & ENVIRONMENT BEHAVIOR
-> # =============================================================================
-> DEFAULT_MODE = "auto"                      # "auto" (instant save) | "batch" (Ctrl+S required)
-> 
-> # STRICT REQUIREMENT: This exact path must always exist. Do not change.
-> THEME_FILE = "~/.config/matugen/generated/dusky_tui.json" 
-> 
-> ENABLE_USER_PRESETS = True                 # Allows users to save/delete profiles dynamically
-> USER_PRESETS_TAB = "Profiles"              # Must exactly match a ONE-WORD tab name below
-> 
-> # =============================================================================
-> # 3. TABS DEFINITION
-> # STRICT RULE: Keep tabs ONE WORD ONLY to prevent UI clutter and wrapping.
-> # =============================================================================
-> 
-> TABS = [
->     "Core",
->     "Visuals",
->     "Profiles"
-> ]
-> 
-> # =============================================================================
-> # 4. SCHEMA DEFINITION
-> # STRICT RULE: Keep `label` as close to ONE WORD as possible.
-> # =============================================================================
-> 
-> SCHEMA = {
->     # -------------------------------------------------------------------------
->     # TAB 0: CORE (Infrastructure & Standard Types)
->     # -------------------------------------------------------------------------
->     0: [
->         ConfigItem(
->             label="Logging",
->             key="log_level",
->             scope="DEFAULT",       # UID = "log_level"
->             type_="cycle",
->             default="info",
->             options=["debug", "info", "warning", "error"],
->             group="System",        # STRICT: ONE WORD ONLY
->             extended_help="**Diagnostic Logging**\n\nSets the verbosity of the daemon's internal logs. `debug` provides the highest detail, while `error` only reports critical failures."
->         ),
->         ConfigItem(
->             label="Concurrency",
->             key="max_threads",
->             scope="DEFAULT",       # UID = "max_threads"
->             type_="int",
->             default=4,
->             min_val=1,
->             max_val=32,
->             step=1,
->             group="System",
->             extended_help="**Thread Allocation**\n\nDefines the maximum number of simultaneous threads allocated for background processing."
->         ),
->         ConfigItem(
->             label="Color",         # Example of an Arch Linux pacman.conf valueless flag
->             key="Color",
->             scope="options",       # UID = "options.Color"
->             type_="bool",
->             default=True,
->             group="Pacman",
->             extended_help="**Color Output**\n\nA valueless boolean flag. When enabled, inserts `Color` into the INI file without an equals sign to force colorized terminal output."
->         ),
->     ],
-> 
->     # -------------------------------------------------------------------------
->     # TAB 1: VISUALS (UI Components & Hybrid Menu Folders)
->     # -------------------------------------------------------------------------
->     1: [
->         ConfigItem(
->             label="Background",
->             key="background-color",
->             scope="DEFAULT",       # UID = "background-color"
->             type_="color",
->             default="#1e1e2e",
->             group="Theme",
->             extended_help="**Base Background Color**\n\nDetermines the core background fill for UI elements. Accepts standard Hex codes."
->         ),
->         
->         # --- HYBRID FOLDER IMPLEMENTATION ---
->         # 1. The Parent (Holds a real backend "bool" value, acts as a folder)
->         ConfigItem(
->             label="Typography",
->             key="custom_fonts", 
->             scope="appearance",       # UID = "appearance.custom_fonts"
->             type_="bool",             # Real boolean value
->             default=False,
->             is_parent=True,           # Flags this as an expandable folder
->             expanded=False,
->             group="Fonts",
->             extended_help="**Typography Override**\n\nMaster switch for font enforcement. When ON, applies the nested typography values."
->         ),
->         # 2. Child Item A (Contiguous with parent)
->         ConfigItem(
->             label="Family",
->             key="font",
->             scope="appearance",       # UID = "appearance.font"
->             type_="picker",        
->             default="JetBrains Mono",
->             options=["JetBrains Mono", "Fira Code", "Roboto", "Inter"],
->             hints=["Monospace", "Ligatures", "Sans", "Sans"], 
->             parent_ref="appearance.custom_fonts",  # Links to Hybrid Parent UID
->             extended_help="**Interface Font Family**\n\nSelects the core typeface used across the system UI panels."
->         ),
->         # 3. Child Item B (Contiguous with parent)
->         ConfigItem(
->             label="Size",
->             key="font_size",
->             scope="appearance",       # UID = "appearance.font_size"
->             type_="float",        
->             default=10.0,
->             min_val=6.0,
->             max_val=24.0,
->             step=0.5,
->             parent_ref="appearance.custom_fonts",
->             extended_help="**Base Font Size**\n\nThe root cryptographic scale parameter measured in points (pt)."
->         ),
->     ],
-> 
->     # -------------------------------------------------------------------------
->     # TAB 2: PROFILES (Advanced Controls & State Synchronization)
->     # -------------------------------------------------------------------------
->     2: [
->         ConfigItem(
->             label="Purge",
->             key="action_clear_cache", 
->             scope="DEFAULT",          # UID = "action_clear_cache"
->             type_="action",
->             default="rm -rf ~/.cache/mako/* && echo 'Cache Cleared'",
->             group="Maintenance",
->             extended_help="**Cache Purge**\n\nImmediately deletes volatile application cache files via shell command."
->         ),
->         ConfigItem(
->             label="Performance",
->             key="preset_performance",     
->             scope="DEFAULT",          # UID = "preset_performance"
->             type_="preset",
->             default=None,
->             group="Orchestrator",
->             preset_payload={
->                 "log_level": "error",      
->                 "appearance.custom_fonts": False,            
->                 "max_threads": 32  
->             },
->             extended_help="**Performance Preset**\n\nInstantly overrides multiple settings to maximize system responsiveness. Any omitted settings are forcibly reverted to default."
->         ),
->         ConfigItem(
->             label="Reset",
->             key="preset_factory_reset",
->             scope="DEFAULT",          # UID = "preset_factory_reset"
->             type_="preset",
->             default=None,
->             group="Orchestrator",
->             preset_payload={
->                 "__ALL_DEFAULTS__": True
->             },
->             extended_help="**Factory Reset**\n\nReverts every single configuration item across all tabs back to its originally programmed default state."
->         ),
->     ]
-> }
-> 
-> # =============================================================================
-> # QUICK-REFERENCE CHEAT SHEET (BULLETPROOF EDITION)
-> # =============================================================================
-> # Copy/Paste this block when building new items to ensure correct kwargs.
 > #
-> # ConfigItem(
-> #     label          = "ShortName",        # STRICT: Keep as succinct/close to one word as possible.
-> #     key            = "backend_key",
-> #     scope          = "DEFAULT",          # "backend_section" or "DEFAULT" for root/valueless keys.
-> #     type_          = "bool",             # STANDARD: bool | int | float | string | color
-> #                                          # MODALS: cycle | picker 
-> #                                          # PURE UI: action | preset | menu
-> #     default        = None,               # Native Python type MUST match type_ (e.g., True, 10, "text"). 
-> #                                          # -> For 'action', default is the shell command string. 
-> #                                          # -> For 'menu' & 'preset', default MUST be None.
-> #     options        = [],                 # Required for 'cycle'/'picker'. Triggers Hybrid Menu for int/float/string/color.
-> #     hints          = [],                 # Subtitles for 'picker' modals (length must match options list).
-> #     preset_payload = {},                 # Dict of {"scope.key": target_value}. Unlisted keys revert to default.
-> #     min_val        = None,               # Numeric lower bound (int/float).
-> #     max_val        = None,               # Numeric upper bound (int/float).
-> #     step           = None,               # Numeric step size for arrow key adjustments.
-> #     group          = "OneWord",          # STRICT: UI header string MUST BE ONE WORD.
-> #     extended_help  = "Markdown String",  # Explain what the setting does for the user's '?' panel.
-> #     is_parent      = False,              # Set True to make this item an expandable folder (Works on ANY type!).
-> #     parent_ref     = None,               # Nested UI link. MUST exactly match parent's UID format: "scope.key" (or "key" if DEFAULT).
-> #     expanded       = False,              # Default UI state for parent folders (Starts open or closed).
+> #     # --- ADVANCED VALIDATION & OVERRIDES ---
+> #     warning_msg    = None,               # Adds a ⚠️ marker and displays this warning in the help panel.
+> #     popup_message  = None,               # Shows an 'OK' alert dialog AFTER the value is applied.
+> #     confirm_message= None,               # Requires Yes/No dialog confirmation BEFORE mutation.
+> #     target_file_override = None,         # Reroutes this specific item to a different file path.
+> #     engine_type_override = None,         # Changes the parsing engine for this item (e.g., "systemd", "ini").
 > # )
 > ```
