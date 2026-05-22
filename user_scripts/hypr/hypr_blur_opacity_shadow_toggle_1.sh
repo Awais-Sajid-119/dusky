@@ -46,15 +46,11 @@ readonly UI_ALPHA_OFF="ff"
 # Mako Global Alpha Values (Section 4 Specific)
 readonly MAKO_BG_ALPHA_ON="1a"
 readonly MAKO_BORDER_ALPHA_ON="33"
-readonly MAKO_PROGRESS_ALPHA_ON="59"
+readonly MAKO_PROGRESS_ALPHA_ON="4d"
 
 readonly MAKO_BG_ALPHA_OFF="ff"
 readonly MAKO_BORDER_ALPHA_OFF="ff"
 readonly MAKO_PROGRESS_ALPHA_OFF="ff"
-
-# Mako OSD Specific Alpha Values
-readonly MAKO_OSD_BG_ALPHA_ON="0d"
-readonly MAKO_OSD_BG_ALPHA_OFF="ff"
 
 # --- Global State for Signal Trapping ---
 declare -g CURRENT_TEMP_FILE=""
@@ -208,7 +204,6 @@ if [[ "$TARGET_STATE" == "on" ]]; then
     NEW_MAKO_BG_ALPHA="$MAKO_BG_ALPHA_ON"
     NEW_MAKO_BORDER_ALPHA="$MAKO_BORDER_ALPHA_ON"
     NEW_MAKO_PROGRESS_ALPHA="$MAKO_PROGRESS_ALPHA_ON"
-    NEW_MAKO_OSD_BG_ALPHA="$MAKO_OSD_BG_ALPHA_ON"
     
     NOTIFY_MSG="Visuals: Max (Blur/Shadow ON)"
     STATE_STRING="True"
@@ -223,7 +218,6 @@ else
     NEW_MAKO_BG_ALPHA="$MAKO_BG_ALPHA_OFF"
     NEW_MAKO_BORDER_ALPHA="$MAKO_BORDER_ALPHA_OFF"
     NEW_MAKO_PROGRESS_ALPHA="$MAKO_PROGRESS_ALPHA_OFF"
-    NEW_MAKO_OSD_BG_ALPHA="$MAKO_OSD_BG_ALPHA_OFF"
     
     NOTIFY_MSG="Visuals: Performance (Blur/Shadow OFF)"
     STATE_STRING="False"
@@ -246,21 +240,19 @@ atomic_sed "$CONFIG_FILE" \
 
 # 2. Dynamic UI Targets
 
-# Mako
+# Mako (Restricted exclusively to Section 4: GLOBAL MATUGEN COLOR INJECTION)
 if [[ -w "$MAKO_TEMPLATE" ]]; then
     atomic_sed "$MAKO_TEMPLATE" \
         -e "/GLOBAL MATUGEN COLOR INJECTION/,/STATE MODES/ s/^\([[:space:]]*background-color={{[^}]*}}\)[0-9a-fA-F]*[[:space:]]*$/\1${NEW_MAKO_BG_ALPHA}/" \
         -e "/GLOBAL MATUGEN COLOR INJECTION/,/STATE MODES/ s/^\([[:space:]]*border-color={{[^}]*}}\)[0-9a-fA-F]*[[:space:]]*$/\1${NEW_MAKO_BORDER_ALPHA}/" \
-        -e "/GLOBAL MATUGEN COLOR INJECTION/,/STATE MODES/ s/^\([[:space:]]*progress-color={{[^}]*}}\)[0-9a-fA-F]*[[:space:]]*$/\1${NEW_MAKO_PROGRESS_ALPHA}/" \
-        -e "/^\[app-name=OSD\]/,/^\[app-name=/ s/^\([[:space:]]*background-color={{[^}]*}}\)[0-9a-fA-F]*[[:space:]]*$/\1${NEW_MAKO_OSD_BG_ALPHA}/"
+        -e "/GLOBAL MATUGEN COLOR INJECTION/,/STATE MODES/ s/^\([[:space:]]*progress-color={{[^}]*}}\)[0-9a-fA-F]*[[:space:]]*$/\1${NEW_MAKO_PROGRESS_ALPHA}/"
 fi
 
 if [[ -w "$MAKO_GENERATED" ]]; then
     atomic_sed "$MAKO_GENERATED" \
         -e "/GLOBAL MATUGEN COLOR INJECTION/,/STATE MODES/ s/^\([[:space:]]*background-color=#[0-9a-fA-F]\{6\}\)[0-9a-fA-F]*[[:space:]]*$/\1${NEW_MAKO_BG_ALPHA}/" \
         -e "/GLOBAL MATUGEN COLOR INJECTION/,/STATE MODES/ s/^\([[:space:]]*border-color=#[0-9a-fA-F]\{6\}\)[0-9a-fA-F]*[[:space:]]*$/\1${NEW_MAKO_BORDER_ALPHA}/" \
-        -e "/GLOBAL MATUGEN COLOR INJECTION/,/STATE MODES/ s/^\([[:space:]]*progress-color=#[0-9a-fA-F]\{6\}\)[0-9a-fA-F]*[[:space:]]*$/\1${NEW_MAKO_PROGRESS_ALPHA}/" \
-        -e "/^\[app-name=OSD\]/,/^\[app-name=/ s/^\([[:space:]]*background-color=#[0-9a-fA-F]\{6\}\)[0-9a-fA-F]*[[:space:]]*$/\1${NEW_MAKO_OSD_BG_ALPHA}/"
+        -e "/GLOBAL MATUGEN COLOR INJECTION/,/STATE MODES/ s/^\([[:space:]]*progress-color=#[0-9a-fA-F]\{6\}\)[0-9a-fA-F]*[[:space:]]*$/\1${NEW_MAKO_PROGRESS_ALPHA}/"
 fi
 
 # Rofi (Untouched - Only target surface opacity)
