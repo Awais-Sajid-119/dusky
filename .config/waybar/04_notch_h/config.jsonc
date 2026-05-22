@@ -6,7 +6,7 @@
         "modules-center": [
             "clock",
 //            "custom/cava",
-            "group/mpris-drawer",
+            // "group/mpris-drawer",
             "hyprland/workspaces",
             "group/hide-tray",
             "group/battery-drawer",
@@ -19,7 +19,7 @@
             "exec": "$HOME/user_scripts/waybar/cava.sh --10 --clean"
         },
 
-        "group/mpris-drawer": {
+/*        "group/mpris-drawer": {
             "orientation": "inherit",
             "drawer": {
                 "transition-duration": "0.3",
@@ -27,14 +27,14 @@
                 "click-to-reveal": false
             },
             "modules": ["custom/mpris-trigger", "mpris"]
-        },
+        },*/
 
-        "custom/mpris-trigger": {
+/*        "custom/mpris-trigger": {
             "format": "♪",
             "tooltip": false
-        },
+        },*/
 
-        "mpris": {
+/*        "mpris": {
             "format": "{player_icon} {title}",
             "format-paused": "{status_icon} <i>{position} {artist}</i>",
             "format-stopped": "",
@@ -48,7 +48,7 @@
                 "paused": ""
             },
             "max-length": 20
-        },
+        },*/
 
         "clock": {
             "format": "{:%I:%M %p}",

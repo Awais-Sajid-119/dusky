@@ -31,7 +31,7 @@
 	],
 	"modules-right": [
 		"custom/left_div#2",
-		"group/mpris-drawer",
+		// "group/mpris-drawer",
 		"custom/left_div#3",
 		"group/pulseaudio",
 		"custom/left_div#4",
@@ -269,7 +269,7 @@
 		"escape": true
 	},
 
-	"group/mpris-drawer": {
+/*	"group/mpris-drawer": {
 		"orientation": "inherit",
 		"drawer": {
 			"transition-duration": 800,
@@ -278,15 +278,15 @@
 			"transition-left-to-right": false
 		},
 		"modules": ["custom/mpris-trigger", "mpris"]
-	},
+	},*/
 
-  "custom/mpris-trigger": {
+/*  "custom/mpris-trigger": {
         "format": "♪",
         "on-click": "uwsm-app -- pavucontrol",
         "tooltip": false
-    },
+    },*/
 
-	"mpris": {
+/*	"mpris": {
 		"format": "{player_icon} {title} - {artist}",
 		"format-paused": "{status_icon} {title} - {artist}",
 		"tooltip-format": "Playing: {title} - {artist}",
@@ -298,7 +298,7 @@
 			"paused": "󰏤"
 		},
 		"max-length": 1000
-	},
+	},*/
 
 	"group/pulseaudio": {
 		"orientation": "horizontal",

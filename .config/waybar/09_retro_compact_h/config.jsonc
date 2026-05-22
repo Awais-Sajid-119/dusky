@@ -26,7 +26,7 @@
   ],
 
   "modules-right": [
-    "mpris",
+    // "mpris",
     "bluetooth",
     "pulseaudio#output",
     "backlight",
@@ -188,7 +188,7 @@
     "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
   },
 
-  "mpris": {
+/*  "mpris": {
     "format": "{player_icon} {title}",
     "format-paused": "{status_icon} <i>{title}</i>",
     "format-stopped": "",
@@ -206,7 +206,7 @@
     "on-click": "playerctl play-pause",
     "on-scroll-up": "playerctl next",
     "on-scroll-down": "playerctl previous"
-  },
+  },*/
 
   "custom/net-speed": {
     "exec": "$HOME/user_scripts/waybar/network/network_meter_calling.sh --horizontal",

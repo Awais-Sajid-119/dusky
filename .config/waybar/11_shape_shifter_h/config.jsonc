@@ -22,7 +22,7 @@
   "modules-center": [
     "group/updates-drawer",
     "clock",
-    "group/mpris-drawer"
+    // "group/mpris-drawer"
   ],
 
   "modules-right": [
@@ -81,7 +81,7 @@
     ]
   },
 
-  "group/mpris-drawer": {
+/*  "group/mpris-drawer": {
     "orientation": "horizontal",
     "drawer": {
       "transition-duration": 600,
@@ -93,7 +93,7 @@
       "custom/mpris-trigger",
       "mpris"
     ]
-  },
+  },*/
 
   "group/power-drawer": {
     "orientation": "horizontal",
@@ -224,15 +224,15 @@
     "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
   },
 
-  "custom/mpris-trigger": {
+/*  "custom/mpris-trigger": {
     "format": "♪",
     "exec": "echo '♪'",
     "exec-if": "playerctl status 2>/dev/null | grep -qE 'Playing|Paused'",
     "interval": 1,
     "tooltip": false
-  },
+  },*/
 
-  "mpris": {
+/*  "mpris": {
     "format": "{player_icon} {title}",
     "format-paused": "{status_icon} <i>{title}</i>",
     "format-stopped": "",
@@ -250,7 +250,7 @@
     "on-click": "playerctl play-pause",
     "on-scroll-up": "playerctl next",
     "on-scroll-down": "playerctl previous"
-  },
+  },*/
 
   "custom/net-speed": {
     "exec": "$HOME/user_scripts/waybar/network/network_meter_calling.sh --horizontal",
