@@ -2,26 +2,46 @@ import os
 import re
 import stat
 import tempfile
-import subprocess
 from pathlib import Path
 from typing import Any
 
 from python.frontend.core_types import BaseEngine
 
+class BridgedStateDict(dict):
+    """
+    A bridged dictionary that prevents the TUI from marking optional parameters 
+    as '[Missing]' and striking them out.
+    
+    Because kernel parameters are flags that are inherently 'optional' (their absence 
+    just implies the kernel's default behavior), they should always be treated as 
+    available and fully editable by the UI.
+    """
+    def __contains__(self, key: Any) -> bool:
+        return True
+
+    def __getitem__(self, key: Any) -> Any:
+        return super().get(key, "unset")
+
+    def get(self, key: Any, default: Any = None) -> Any:
+        # Override get() as well, since CPython dict.get bypasses __getitem__
+        return super().get(key, "unset")
+
+
 class CmdlineEngine(BaseEngine):
     """
-    Intelligent engine for /etc/kernel/cmdline and similar kernel parameter files.
+    Bridged Intelligent engine for /etc/kernel/cmdline and similar kernel parameter files.
     
     Features:
+    - Bridged State: Prevents optional parameters from rendering as missing/broken.
+    - Type-Aware AST: Strictly separates boolean flags (rw) from KV pairs (root=xyz).
     - Token-Preservation: Uses regex to preserve the exact spacing and order of all arguments.
-    - Flag vs Key-Value Awareness: Understands that `rw` is a boolean flag, while `root=...` is a K-V pair.
-    - Duplicate Key Tracking: Properly indexes duplicate arguments (like multiple `console=ttyS0 console=tty1`).
+    - Duplicate Key Tracking: Properly indexes duplicate arguments (like multiple console=ttyS0).
     - Atomic Commits: Crucial for boot-critical files to prevent a corrupted state during power loss.
     """
     
     def __init__(self, config_path: str = "/etc/kernel/cmdline"):
         self.config_path = Path(config_path).expanduser().resolve()
-        self.cache: dict[str, Any] = {}
+        self.cache: BridgedStateDict = BridgedStateDict()
         self.file_mtime: float = 0.0
 
     @property
@@ -30,10 +50,10 @@ class CmdlineEngine(BaseEngine):
 
     def load_state(self) -> dict[str, Any]:
         if not self.config_path.exists():
-            return {}
+            return BridgedStateDict()
 
         self.file_mtime = self.config_path.stat().st_mtime
-        self.cache = {}
+        self.cache = BridgedStateDict()
         
         try:
             with open(self.config_path, 'r', encoding='utf-8') as f:
@@ -59,7 +79,6 @@ class CmdlineEngine(BaseEngine):
                 self.cache[f"DEFAULT/{k}:{count}"] = v
                 
                 # Smart Sub-Key parsing for complex comma-separated values (e.g. rootflags=subvol=/@,noatime)
-                # This exposes them as read-only values to the UI so users can see deep metrics
                 if "," in v and count == 1 and not (v.startswith('"') or v.startswith("'")):
                     sub_items = v.split(",")
                     for item in sub_items:
@@ -86,7 +105,8 @@ class CmdlineEngine(BaseEngine):
             if current_mtime > self.file_mtime:
                 return False, f"File {self.config_path.name} modified externally. Reload required.", ""
 
-        changes_dict = {(scope, key): val for key, scope, val, _ in changes}
+        # Map using precise item types to prevent string/bool coercion bugs
+        changes_dict = {(scope, key): (val, itype) for key, scope, val, itype in changes}
         applied_commits = set()
         
         try:
@@ -107,11 +127,9 @@ class CmdlineEngine(BaseEngine):
                     
                 if "=" in t:
                     k, v = t.split("=", 1)
-                    is_flag = False
                 else:
                     k = t
                     v = "true"
-                    is_flag = True
                     
                 counts[k] = counts.get(k, 0) + 1
                 count = counts[k]
@@ -120,35 +138,43 @@ class CmdlineEngine(BaseEngine):
                 lookup_base = ("DEFAULT", k)
                 
                 target_val = None
+                target_itype = None
                 matched_lookup = None
                 
                 if lookup_exact in changes_dict:
-                    target_val = changes_dict[lookup_exact]
+                    target_val, target_itype = changes_dict[lookup_exact]
                     matched_lookup = lookup_exact
                 elif count == 1 and lookup_base in changes_dict:
-                    target_val = changes_dict[lookup_base]
+                    target_val, target_itype = changes_dict[lookup_base]
                     matched_lookup = lookup_base
                     
                 if target_val is not None:
                     applied_commits.add(matched_lookup)
-                    if target_val == "__DELETE__" or (is_flag and target_val.lower() == "false"):
-                        # We skip appending it to effectively delete it
+                    val_str = str(target_val)
+                    val_lower = val_str.lower()
+                    
+                    # Strictly evaluate based on item type
+                    if val_str in ("__DELETE__", "unset", "") or (target_itype == "bool" and val_lower == "false"):
+                        # Discard token to cleanly delete the parameter from the file
                         pass
+                    elif target_itype == "bool" and val_lower == "true":
+                        # Write as a standalone flag
+                        out_tokens.append(k)
                     else:
-                        if target_val.lower() == "true":
-                            # Boolean flag format
-                            out_tokens.append(k)
-                        else:
-                            # Key-Value format
-                            out_tokens.append(f"{k}={target_val}")
+                        # Write as Key-Value
+                        out_tokens.append(f"{k}={val_str}")
                 else:
                     out_tokens.append(t)
                     
             # Handle brand new keys appended to the end
             missing_changes = set(changes_dict.keys()) - applied_commits
             for scope, key_raw in missing_changes:
-                val = changes_dict[(scope, key_raw)]
-                if val == "__DELETE__" or val.lower() == "false":
+                val, target_itype = changes_dict[(scope, key_raw)]
+                val_str = str(val)
+                val_lower = val_str.lower()
+                
+                # Prevent appending 'unset' or 'false' markers 
+                if val_str in ("__DELETE__", "unset", "") or (target_itype == "bool" and val_lower == "false"):
                     continue
                     
                 actual_key = key_raw.split(":")[0] if ":" in key_raw else key_raw
@@ -162,10 +188,10 @@ class CmdlineEngine(BaseEngine):
                 if needs_space:
                     out_tokens.append(" ")
                     
-                if val.lower() == "true":
+                if target_itype == "bool" and val_lower == "true":
                     out_tokens.append(actual_key)
                 else:
-                    out_tokens.append(f"{actual_key}={val}")
+                    out_tokens.append(f"{actual_key}={val_str}")
                     
                 applied_commits.add((scope, key_raw))
                 

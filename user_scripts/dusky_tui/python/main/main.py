@@ -259,9 +259,12 @@ EXAMPLES:
         elif e_type == "hyprlang":
             from python.engines.hyprlang import HyprlangEngine
             engine = HyprlangEngine(config_path=config_path)
+        elif e_type == "cmdline":
+            from python.engines.cmdline import CmdlineEngine
+            engine = CmdlineEngine(config_path=config_path)
         else:
             print(f"[-] Fatal: Unknown ENGINE_TYPE '{e_type}' specified in schema '{schema_path.name}'.")
-            print("[i] Supported engines are: 'lua', 'ini'")
+            print("[i] Supported engines are: 'lua', 'ini', 'systemd', 'hyprlang', 'trackpad', 'monitor', 'cmdline'")
             sys.exit(1)
             
         engine_pool[key] = engine
