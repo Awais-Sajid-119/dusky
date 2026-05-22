@@ -115,7 +115,7 @@ class CmdlineEngine(BaseEngine):
                     current_mtime_ns = os.fstat(f.fileno()).st_mtime_ns
                     if current_mtime_ns > self.file_mtime_ns:
                         return False, f"File {self.config_path.name} modified externally. Reload required.", ""
-                    content = f.read()
+                    content = f.read().strip().replace('\n', ' ')
             except OSError as e:
                 return False, f"Failed to open config for verification: {e}", ""
 

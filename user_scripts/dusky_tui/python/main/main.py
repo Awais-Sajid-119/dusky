@@ -7,8 +7,50 @@ import json
 import shutil
 import logging
 import hashlib
+import pwd
+import signal
+import subprocess
+import shlex
 from datetime import datetime
 from pathlib import Path
+
+# =============================================================================
+# REAL-USER ENVIRONMENT RECONSTRUCTION (SUDO/PKEXEC SAFETY)
+# =============================================================================
+# If a user launches the app natively using `sudo main.py`, Path.home() resolves to /root.
+# We must intercept this before ANY path resolution happens to restore their genuine $HOME
+# so that the schemas, backups, and presets always point to the actual user's files.
+if os.geteuid() == 0:
+    _real_uid = None
+    _sudo_user = os.environ.get("SUDO_USER")
+    _pkexec_uid = os.environ.get("PKEXEC_UID")
+    
+    if _sudo_user and _sudo_user != "root":
+        try:
+            _real_uid = pwd.getpwnam(_sudo_user).pw_uid
+        except KeyError: pass
+    elif _pkexec_uid:
+        try:
+            _real_uid = int(_pkexec_uid)
+        except ValueError: pass
+        
+    if _real_uid:
+        try:
+            _pw = pwd.getpwuid(_real_uid)
+            os.environ["HOME"] = _pw.pw_dir
+            os.environ["USER"] = _pw.pw_name
+            
+            # Extreme Bulletproofing: Guarantee XDG base directories point to the real user.
+            # Fixes edge cases where sudo hijacked the XDG tree to /root/.config
+            for xdg_var, default_suffix in [
+                ("XDG_CONFIG_HOME", ".config"),
+                ("XDG_CACHE_HOME", ".cache"),
+                ("XDG_DATA_HOME", ".local/share"),
+                ("XDG_STATE_HOME", ".local/state")
+            ]:
+                if xdg_var not in os.environ or os.environ[xdg_var].startswith("/root"):
+                    os.environ[xdg_var] = os.path.join(_pw.pw_dir, default_suffix)
+        except KeyError: pass
 
 # =============================================================================
 # CACHE & IOC SETUP
@@ -73,8 +115,7 @@ def manage_backup(target_file: Path, action: str, logger: logging.Logger) -> boo
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
-    # REPAIRED: Prevent cross-engine collisions in the backup folder utilizing a cryptographically secure path hash.
-    # A config at `~/.config/app_A/config.ini` and `~/.config/app_B/config.ini` will safely backup with unique hashes.
+    # Prevent cross-engine collisions in the backup folder utilizing a cryptographically secure path hash.
     path_hash = hashlib.md5(str(target_file.resolve()).encode()).hexdigest()[:6]
     safe_prefix = f"{target_file.parent.name}_{path_hash}_" if target_file.parent.name else f"{path_hash}_"
     
@@ -82,7 +123,6 @@ def manage_backup(target_file: Path, action: str, logger: logging.Logger) -> boo
     latest_link = backup_dir / f"{safe_prefix}{target_file.name}.latest.bak"
 
     if action == "check_restore":
-        # Supports the atomic pre-flight check
         if not latest_link.exists():
             print(f"[-] Missing backup for: {target_file.name} (Cannot perform atomic restore)")
             return False
@@ -213,10 +253,9 @@ EXAMPLES:
         ENABLE_USER_PRESETS = getattr(schema_module, "ENABLE_USER_PRESETS", True)
         USER_PRESETS_TAB = getattr(schema_module, "USER_PRESETS_TAB", None)
         GLOBAL_POPUP = getattr(schema_module, "GLOBAL_POPUP", None)
-        TAB_NOTICES = getattr(schema_module, "TAB_NOTICES", None) # Inject Tab specific structural notices
+        TAB_NOTICES = getattr(schema_module, "TAB_NOTICES", None) 
         
-        # STRICT REQUIREMENT: The schema MUST explicitly define ENGINE_TYPE.
-        # We access it directly so it throws an AttributeError if it's missing.
+        REQUIRE_ROOT = getattr(schema_module, "REQUIRE_ROOT", False)
         ENGINE_TYPE = schema_module.ENGINE_TYPE.lower()
 
     except AttributeError as e:
@@ -230,6 +269,96 @@ EXAMPLES:
         sys.exit(1)
 
     logger.info(f"Loaded schema: {schema_path} | Target: {TARGET_FILE} | Engine: {ENGINE_TYPE}")
+
+    # =========================================================================
+    # --- 1.5 DYNAMIC PRIVILEGE ESCALATION BLOCK ---
+    # =========================================================================
+    if REQUIRE_ROOT and os.geteuid() != 0:
+        print(f"[*] '{APP_TITLE}' requires root privileges. Escalating...")
+        logger.info("Elevating privileges via pkexec/sudo.")
+        
+        # Arch Linux + Wayland requires explicit preservation of environment to maintain GUI/Audio/Clipboard hooks,
+        # as well as the active python PATH execution space (crucial if running in a venv).
+        preserve_vars = [
+            "HOME", "USER", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME",
+            "XDG_RUNTIME_DIR", "WAYLAND_DISPLAY", "DISPLAY", "TERM", "COLORTERM", 
+            "DBUS_SESSION_BUS_ADDRESS", "XAUTHORITY", "LANG", "LC_ALL", "PATH"
+        ]
+        
+        env_args = []
+        for var in preserve_vars:
+            if var in os.environ:
+                env_args.append(f"{var}={os.environ[var]}")
+
+        # sys.executable securely hardlinks the exact Python binary, solving the virtual-env scrubbing issue.
+        # os.path.realpath ensures symlinked wrappers resolve securely.
+        
+        # CRITICAL FIX: pkexec and some sudo configs scrub the Current Working Directory (CWD).
+        # We must rewrite the target argument to its absolute resolved path before escalating,
+        # otherwise the root process will look in /root/ and fail to find the schema.
+        escalated_args = list(sys.argv[1:])
+        if target_arg in escalated_args:
+            escalated_args[escalated_args.index(target_arg)] = str(schema_path)
+            
+        target_cmd = [sys.executable, os.path.realpath(sys.argv[0])] + escalated_args
+        
+        # 1. Non-Interactive Check: If the user recently used sudo, just reuse the token silently.
+        has_silent_sudo = False
+        if shutil.which("sudo"):
+            try:
+                if subprocess.run(["sudo", "-n", "true"], capture_output=True, timeout=2).returncode == 0:
+                    has_silent_sudo = True
+            except Exception: pass
+
+        if has_silent_sudo:
+            cmd = ["sudo", "env"] + env_args + target_cmd
+            # os.execvp completely replaces the current process without waiting. TTY control is seamlessly transferred.
+            os.execvp(cmd[0], cmd)
+            
+        # 2. Smart GUI Polkit vs Terminal Routing
+        has_display = bool(os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY"))
+        
+        if has_display and shutil.which("pkexec"):
+            cmd = ["pkexec", "env"] + env_args + target_cmd
+            
+            # Mask SIGINT in the parent so the child TUI process handles Ctrl+C gracefully without tearing down the terminal
+            old_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
+            try:
+                res = subprocess.run(cmd)
+            finally:
+                signal.signal(signal.SIGINT, old_handler)
+            
+            # Forensic Polkit Exit Code Analysis:
+            if res.returncode == 126:
+                print("[-] Authentication canceled by user.")
+                sys.exit(126)
+            elif res.returncode == 127:
+                # Code 127 explicitly signifies Polkit is installed, but the graphical authentication daemon is dead/missing.
+                print("[-] GUI Polkit agent missing or failed (Exit 127). Falling back to terminal auth...")
+                if shutil.which("sudo"):
+                    cmd = ["sudo", "env"] + env_args + target_cmd
+                    os.execvp(cmd[0], cmd)
+                elif shutil.which("su"):
+                    su_cmd_str = " ".join([shlex.quote(arg) for arg in (["env"] + env_args + target_cmd)])
+                    cmd = ["su", "-c", su_cmd_str]
+                    os.execvp(cmd[0], cmd)
+                else:
+                    sys.exit(127)
+            else:
+                sys.exit(res.returncode)
+                
+        elif shutil.which("sudo"):
+            cmd = ["sudo", "env"] + env_args + target_cmd
+            os.execvp(cmd[0], cmd)
+            
+        elif shutil.which("su"):
+            su_cmd_str = " ".join([shlex.quote(arg) for arg in (["env"] + env_args + target_cmd)])
+            cmd = ["su", "-c", su_cmd_str]
+            os.execvp(cmd[0], cmd)
+            
+        else:
+            print("[-] Fatal: Root privileges required, but no escalation tool (sudo/pkexec/su) was found.")
+            sys.exit(1)
 
 
     # =========================================================================
@@ -294,7 +423,6 @@ EXAMPLES:
                 unique_targets.add(Path(item.target_file_override).expanduser().resolve())
 
     if args.restore:
-        # ATOMICITY FIX: Pre-flight check all required backups BEFORE touching any active files
         can_restore_all = True
         for t_file in unique_targets:
             if not manage_backup(t_file, "check_restore", logger):
@@ -304,7 +432,6 @@ EXAMPLES:
             print("[-] Atomic restore aborted: One or more required backup files are missing.")
             sys.exit(1)
             
-        # Execute actual restores now that atomicity is guaranteed
         for t_file in unique_targets:
             manage_backup(t_file, "restore", logger)
             
@@ -325,15 +452,12 @@ EXAMPLES:
             eng.load_state()
 
         if args.export_state:
-            # REPAIRED: Flattened dictionary with highly secure namespacing to avoid overlapping keys
             merged_state = {}
             for ekey, eng in engine_pool.items():
                 st = eng.cache if hasattr(eng, "cache") else eng.load_state()
                 if ekey == default_engine_key:
-                    # Primary target remains perfectly flat to preserve API integrity
                     merged_state.update(st)
                 else:
-                    # Secondary targets get dynamically prefixed (preventing exact folder structure collisions)
                     file_path = Path(ekey[1])
                     path_hash = hashlib.md5(str(file_path.resolve()).encode()).hexdigest()[:4]
                     safe_namespace = f"{file_path.parent.name}_{file_path.name}_{path_hash}"
@@ -349,7 +473,6 @@ EXAMPLES:
             for tab_idx, items in SCHEMA.items():
                 print(f"## {TABS[tab_idx]}")
                 for item in items:
-                    # STRICT UI TYPE EXCLUSION
                     if item.type_ in ("action", "preset", "menu"): continue
                     print(f"### `{item.key}`")
                     print(f"- **Type:** `{item.type_}`")
@@ -362,20 +485,15 @@ EXAMPLES:
                         print(f"\n> **Warning:** {item.warning_msg.replace('**', '')}\n")
             sys.exit(0)
 
-        # Map both direct & compound keys safely
         flat_schema = {}
         for items in SCHEMA.values():
             for item in items:
-                # STRICT UI TYPE EXCLUSION:
-                # Prevent pure-UI structural macros from polluting backend state checks 
-                # or getting written during a --default wipe.
                 if item.type_ in ("action", "preset", "menu"):
                     continue
                 
                 scoped_key = f"{item.scope}.{item.key}"
                 flat_schema[scoped_key] = item
                 
-                # Flag collision if multiple scopes share the same key
                 if item.key in flat_schema:
                     if flat_schema[item.key] is not item:
                         flat_schema[item.key] = None
@@ -401,7 +519,6 @@ EXAMPLES:
             t_file = str(Path(item.target_file_override).expanduser().resolve()) if item.target_file_override else str(TARGET_FILE)
             target_engine = engine_pool[(e_type, t_file)]
 
-            # NATIVE SERIALIZATION (Handles __VAR__ wrappers and type coercion natively)
             val_str = item.serialize(val_str)
 
             logger.info(f"Headless Injection: {target_key} -> {val_str}")
@@ -423,7 +540,6 @@ EXAMPLES:
             t_file = str(Path(item.target_file_override).expanduser().resolve()) if item.target_file_override else str(TARGET_FILE)
             target_engine = engine_pool[(e_type, t_file)]
 
-            # NATIVE SERIALIZATION 
             val = item.serialize(item.default)
 
             logger.info(f"Headless Reset Key: {args.reset_key} -> {val}")
@@ -434,12 +550,10 @@ EXAMPLES:
         if args.default:
             logger.info("Initiating Full Headless Default Restoration")
             
-            # Use id() mapping to ensure we don't duplicate executions for keys vs scoped_keys
             unique_items = {id(item): item for item in flat_schema.values() if item is not None}.values()
             
             changes_by_engine = {}
             for item in unique_items:
-                # NATIVE SERIALIZATION 
                 val = item.serialize(item.default)
                 e_type = (item.engine_type_override or ENGINE_TYPE).lower()
                 t_file = str(Path(item.target_file_override).expanduser().resolve()) if item.target_file_override else str(TARGET_FILE)
@@ -450,13 +564,11 @@ EXAMPLES:
             
             all_success = True
             for ekey, changes in changes_by_engine.items():
-                # FULLY DEPLOY NATIVE BATCH ARCHITECTURE IN HEADLESS CLI
                 success, msg, _ = engine_pool[ekey].write_batch(changes)
                 
                 if success:
                     print(f"[*] Restoration Complete for {ekey[0]} backend. Reset {len(changes)} items successfully.")
                 else:
-                    # Graceful fallback logic
                     success_count, skip_count = 0, 0
                     for key, scope, val, itype in changes:
                         ok, _, _ = engine_pool[ekey].write_value(key, scope, val, item_type=itype)
