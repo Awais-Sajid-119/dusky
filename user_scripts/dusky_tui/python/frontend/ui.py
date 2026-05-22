@@ -1051,7 +1051,7 @@ class DuskyTUI(App):
     .modal-cancel-btn { background: $secondary; color: $foreground; text-style: bold; padding: 0 2; width: auto; height: 1; margin: 0 1;}
     .modal-cancel-btn:hover { background: $primary; color: $background; }
 
-    #modal-title, #picker-title { color: $primary; margin-bottom: 1; text-style: bold; border-bottom: solid $secondary; }
+    #modal-title, #picker-title { color: $primary; margin-bottom: 1; text-style: bold; border-bottom: solid $secondary; content-align: center middle; width: 100%; }
     #modal-hint { color: $secondary; text-style: italic; content-align: center middle; width: 100%; margin-top: 1; }
 
     Input { border: none; background: transparent; color: $foreground; border-bottom: solid $primary; }
