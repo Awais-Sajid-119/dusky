@@ -1094,7 +1094,7 @@ class DuskyTUI(App):
 
     auto_save = reactive(True)
 
-    def __init__(self, engine_pool: dict[tuple[str, str], BaseEngine], default_engine_key: tuple[str, str], schema: dict[int, list[ConfigItem]], tabs: list[str], title="Dusky Editor", theme_path: str | None = None, default_mode: str = "auto", schema_name: str = "default", enable_user_presets: bool = True, user_presets_tab: str | None = None, global_popup: Any | None = None, tab_notices: dict[int, dict] | None = None, **kwargs):
+    def __init__(self, engine_pool: dict[tuple[str, str], BaseEngine], default_engine_key: tuple[str, str], schema: dict[int, list[ConfigItem]], tabs: list[str], title="Dusky Editor", theme_path: str | None = None, default_mode: str = "auto", schema_name: str = "default", enable_user_presets: bool = True, user_presets_tab: str | None = None, global_popup: Any | None = None, tab_notices: dict[int, dict | list[dict]] | None = None, **kwargs):
         super().__init__(**kwargs)
         self.engine_pool = engine_pool
         self.default_engine_key = default_engine_key
@@ -1180,11 +1180,14 @@ class DuskyTUI(App):
                         with Vertical(id=f"tab-{i}"):
                             
                             # Render Schema-Driven Tab Structural Notices
-                            tab_notice = self.tab_notices.get(i)
-                            if tab_notice:
-                                level = tab_notice.get("level", "info")
-                                message = tab_notice.get("message", "")
-                                yield NoticeBox(message, level=level, id=f"notice-{i}")
+                            tab_notices = self.tab_notices.get(i)
+                            if tab_notices:
+                                if isinstance(tab_notices, dict):
+                                    tab_notices = [tab_notices]
+                                for n_idx, tab_notice in enumerate(tab_notices):
+                                    level = tab_notice.get("level", "info")
+                                    message = tab_notice.get("message", "")
+                                    yield NoticeBox(message, level=level, id=f"notice-{i}-{n_idx}")
 
                             with Horizontal(classes="list-wrapper"):
                                 yield ConfigOptionList(id=f"list-{i}")
