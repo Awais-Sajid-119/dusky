@@ -1532,7 +1532,8 @@ def _playerctl(cmd_args: list[str], player: str | None = None) -> str | None:
     if player and player != "auto": cmd.extend(["-p", player])
     cmd.extend(cmd_args)
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=0.2, env=COMMAND_ENV)
+        # Heavily increased the timeout to 0.8 to prevent dropping DBus signals under load
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=0.8, env=COMMAND_ENV)
         if r.returncode == 0: return r.stdout.strip()
     except Exception: pass
     return None
@@ -1540,18 +1541,38 @@ def _playerctl(cmd_args: list[str], player: str | None = None) -> str | None:
 def fetch_media_state(player: str | None = None) -> MediaState | None:
     if PLAYERCTL is None: return None
     try:
-        r = subprocess.run([PLAYERCTL, "-l"], capture_output=True, text=True, timeout=0.2, env=COMMAND_ENV)
+        # Use increased timeout for listing players too
+        r = subprocess.run([PLAYERCTL, "-l"], capture_output=True, text=True, timeout=0.8, env=COMMAND_ENV)
         current_players = [p.strip() for p in r.stdout.splitlines() if p.strip()]
     except Exception:
         current_players = []
 
     if not current_players: return None
 
-    status = _playerctl(["status"], player)
+    # CRITICAL FIX: Precisely map to the ACTIVE DBus instance ID.
+    target_player = None
+    if player and player != "auto":
+        target_player = player
+    else:
+        # Loop through concrete instances (e.g. firefox.instance1234) to find the genuinely playing one
+        # This completely destroys the "stuck at 0:00" bug caused by picking up paused background tabs
+        for p in current_players:
+            if _playerctl(["status"], p) == "Playing":
+                target_player = p
+                break
+        
+        # If nothing is strictly 'Playing', fallback safely to the top prioritized recent player
+        if not target_player and current_players:
+            target_player = current_players[0]
+
+    if not target_player: return None
+
+    # Fast abort if player isn't responding
+    status = _playerctl(["status"], target_player)
     if status not in ("Playing", "Paused"): return None
 
-    raw_meta = _playerctl(["metadata"], player)
-    title, artist, length = "Unknown", "", 0.0
+    raw_meta = _playerctl(["metadata"], target_player)
+    title, artist, length = "Unknown", "", -1.0
     if raw_meta:
         for line in raw_meta.splitlines():
             parts = line.split(None, 2)
@@ -1563,13 +1584,15 @@ def fetch_media_state(player: str | None = None) -> MediaState | None:
                     try: length = int(val) / 1_000_000.0
                     except ValueError: pass
 
-    pos = 0.0
-    if pos_str := _playerctl(["position"], player):
+    # Strict -1.0 initialization acts as a guard against zero-snapping GTK sliders
+    pos = -1.0
+    if pos_str := _playerctl(["position"], target_player):
         try: pos = float(pos_str)
         except ValueError: pass
 
-    shuffle = (_playerctl(["shuffle"], player) or "").lower() == "on"
-    loop = _playerctl(["loop"], player) or "None"
+    shuffle_str = _playerctl(["shuffle"], target_player)
+    shuffle = (shuffle_str or "").lower() in ("on", "true")
+    loop = _playerctl(["loop"], target_player) or "None"
 
     return MediaState(current_players, status, title, artist, pos, length, shuffle, loop)
 
@@ -1668,6 +1691,7 @@ class MediaCard(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         self._pool = pool
         self._refresh_future: Future | None = None
+        self._refresh_token = 0
         self._suppress_seek = False
         self._pending_seek_deadline = 0.0
         self._cache_players: list[str] = []
@@ -1721,10 +1745,16 @@ class MediaCard(Gtk.Box):
 
         ctrl_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         ctrl_box.set_halign(Gtk.Align.CENTER)
+        
         self.shuf_btn = self._btn("media-playlist-shuffle-symbolic", lambda _: self._cmd(["shuffle", "toggle"]))
         self.prev_btn = self._btn("media-skip-backward-symbolic", lambda _: self._cmd(["previous"]))
-        self.play_btn = self._btn("media-playback-start-symbolic", lambda _: self._cmd(["play-pause"]))
-        self.play_btn.set_size_request(44, 44) 
+        
+        # New robust play/pause button with the custom CSS ring requested
+        self.play_btn = Gtk.Button(icon_name="media-playback-start-symbolic")
+        self.play_btn.add_css_class("flat")
+        self.play_btn.add_css_class("media-play-btn")
+        self.play_btn.connect("clicked", lambda _: self._cmd(["play-pause"]))
+        
         self.next_btn = self._btn("media-skip-forward-symbolic", lambda _: self._cmd(["next"]))
         self.loop_btn = self._btn("media-playlist-repeat-symbolic", lambda _: self._cmd(["loop", {'None': 'Playlist', 'Playlist': 'Track', 'Track': 'None'}.get(self._loop_state, 'None')]))
         
@@ -1741,6 +1771,9 @@ class MediaCard(Gtk.Box):
         if not self._cache_players: return
         self._current_player_idx = (self._current_player_idx + 1) % (len(self._cache_players) + 1)
         self.player_btn.set_label("Auto" if self._current_player_idx == 0 else self._cache_players[self._current_player_idx - 1].capitalize())
+        
+        self._refresh_token += 1
+        self._refresh_future = None
         self.refresh_async()
 
     def _get_player(self) -> str | None:
@@ -1750,7 +1783,15 @@ class MediaCard(Gtk.Box):
         return None
 
     def _cmd(self, args: list[str]):
-        self._pool.submit(lambda: _playerctl(args, self._get_player()))
+        player_name = self._get_player()
+        self._pool.submit(lambda: _playerctl(args, player_name))
+        GLib.timeout_add(400, self._force_refresh)
+
+    def _force_refresh(self):
+        self._refresh_token += 1
+        self._refresh_future = None
+        self.refresh_async()
+        return GLib.SOURCE_REMOVE
 
     def _on_seek(self, scale: Gtk.Scale):
         if self._suppress_seek: return
@@ -1760,13 +1801,29 @@ class MediaCard(Gtk.Box):
         self._pending_seek_deadline = time.monotonic() + 1.25
 
     def refresh_async(self):
-        if not self._refresh_future or self._refresh_future.done():
-            self._refresh_future = self._pool.submit(lambda: fetch_media_state(self._get_player()))
-            if self._refresh_future: self._refresh_future.add_done_callback(
-                lambda f: GLib.idle_add(self._apply_state, f.result() if not f.cancelled() else None)
+        if self._refresh_future and not self._refresh_future.done():
+            return
+            
+        self._refresh_token += 1
+        token = self._refresh_token
+        self._refresh_future = self._pool.submit(lambda: fetch_media_state(self._get_player()))
+        if self._refresh_future: 
+            self._refresh_future.add_done_callback(
+                lambda f: self._on_refresh_done(f, token)
             )
 
-    def _apply_state(self, state: MediaState | None) -> bool:
+    def _on_refresh_done(self, f: Future, token: int):
+        try:
+            state = f.result() if not f.cancelled() else None
+        except Exception as e:
+            LOG.error(f"Media refresh error: {e}")
+            state = None
+        GLib.idle_add(self._apply_state, state, token)
+
+    def _apply_state(self, state: MediaState | None, token: int) -> bool:
+        if token != self._refresh_token:
+            return GLib.SOURCE_REMOVE
+            
         self._refresh_future = None
         if not state:
             self.set_visible(False)
@@ -1789,11 +1846,26 @@ class MediaCard(Gtk.Box):
         if time.monotonic() >= self._pending_seek_deadline:
             self._suppress_seek = True
             try:
-                self.seek_adj.set_upper(state.length if state.length > 0 else 1)
-                self.seek_adj.set_value(state.position)
-                self.elapsed_lbl.set_label(_format_time(state.position))
-                self.dur_lbl.set_label(_format_time(state.length))
-            finally: self._suppress_seek = False
+                # Flawless bounding constraints: Eliminates the snap-to-zero bug inherently.
+                safe_length = state.length
+                if safe_length < 0:
+                    safe_length = max(state.position, 1.0)
+                else:
+                    safe_length = max(safe_length, 1.0)
+                    
+                self.seek_adj.set_upper(safe_length)
+                
+                if state.position >= 0.0:
+                    clamped_pos = min(state.position, safe_length)
+                    self.seek_adj.set_value(clamped_pos)
+                    self.elapsed_lbl.set_label(_format_time(clamped_pos))
+                    
+                if state.length >= 0.0:
+                    self.dur_lbl.set_label(_format_time(state.length))
+                else:
+                    self.dur_lbl.set_label("--:--")
+            finally: 
+                self._suppress_seek = False
 
         self.play_btn.set_icon_name("media-playback-pause-symbolic" if state.status == "Playing" else "media-playback-start-symbolic")
         self.shuf_btn.set_opacity(1.0 if state.shuffle else 0.4)
@@ -2275,7 +2347,27 @@ box.media-card { background-color: rgba(255, 255, 255, 0.06); border: 1px solid 
 .media-title { font-size: 14px; font-family: sans-serif; }
 .media-artist { font-size: 12px; opacity: 0.8; font-family: sans-serif; }
 .media-time { font-size: 11px; opacity: 0.7; font-family: "JetBrainsMono Nerd Font", monospace; font-variant-numeric: tabular-nums; }
-.media-btn { min-width: 38px; min-height: 38px; border-radius: 19px; padding: 0; }
+.media-btn { min-width: 38px; min-height: 38px; border-radius: 19px; padding: 0; transition: all 0.2s; }
+.media-btn:hover { background-color: rgba(255, 255, 255, 0.1); }
+
+/* Circle ring class explicitly mapped from user screenshots for Play/Pause button */
+.media-play-btn {
+    min-width: 44px;
+    min-height: 44px;
+    border-radius: 22px;
+    padding: 0;
+    background-color: alpha(@accent_bg_color, 0.15);
+    border: 2px solid alpha(@accent_bg_color, 0.5);
+    transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+.media-play-btn:hover {
+    background-color: alpha(@accent_bg_color, 0.35);
+    border-color: @accent_color;
+}
+.media-play-btn:active {
+    background-color: alpha(@accent_bg_color, 0.55);
+    transform: scale(0.95);
+}
 
 /* Sliders specific styling */
 .sliders-container {
