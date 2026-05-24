@@ -24,14 +24,14 @@ HOME = Path.home()
 WALLPAPER_DIR = HOME / "Pictures/wallpapers"
 SETTINGS_DIR = HOME / ".config/dusky/settings"
 THEME_DIR = SETTINGS_DIR / "dusky_theme"
-FAVORITES_FILE = THEME_DIR / "wal_fav_rofi"
+FAVORITES_FILE = THEME_DIR / "wal_fav_list"
 STATE_FILE = THEME_DIR / "state.conf"
 FAV_STATE_FILE = THEME_DIR / "current_fav"
 TRACK_LIGHT = THEME_DIR / "light_wal"
 TRACK_DARK = THEME_DIR / "dark_wal"
 THEME_CTL = HOME / "user_scripts/theme_matugen/theme_ctl.sh"
 
-CACHE_DIR = HOME / ".cache/rofi-wallpaper-thumbs/v4-300"
+CACHE_DIR = HOME / ".cache/dusky_images/wallpaper_selector/"
 THUMB_DIR = CACHE_DIR / "thumbs"
 
 # Safe fallback for XDG_RUNTIME_DIR if run from raw TTY
