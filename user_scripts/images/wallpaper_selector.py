@@ -31,6 +31,7 @@ TRACK_LIGHT = THEME_DIR / "light_wal"
 TRACK_DARK = THEME_DIR / "dark_wal"
 THEME_CTL = HOME / "user_scripts/theme_matugen/theme_ctl.sh"
 
+APP_SETTINGS_FILE = THEME_DIR / "gtk_wall_settings"
 CACHE_DIR = HOME / ".cache/dusky_images/wallpaper_selector/"
 THUMB_DIR = CACHE_DIR / "thumbs"
 
@@ -204,10 +205,11 @@ class WallpaperApp:
         self.flowbox = None
         self.search_entry = None
         self.stack = None
+        self.btn_toggle = None
         
         self.wallpapers = []
         self.favorites = set()
-        self.show_only_favorites = False
+        self.app_settings = {}
         self.search_query = ""
         
         self.ui_children = {}
@@ -218,8 +220,8 @@ class WallpaperApp:
         workers = min(os.cpu_count() or 4, 8)
         self.executor = ThreadPoolExecutor(max_workers=workers)
 
-        self.lock_fd = None
         self._acquire_lock()
+        self._load_app_settings()
         self._load_favorites()
 
     def _acquire_lock(self):
@@ -230,6 +232,50 @@ class WallpaperApp:
         except BlockingIOError:
             print("Another instance is already running. Exiting.")
             sys.exit(0)
+
+    def _load_app_settings(self):
+        """Loads application-specific preferences dynamically."""
+        self.app_settings = {
+            "AUTO_CLOSE": False,
+            "FAST_APPLY_AUTO_CLOSE": False,
+            "SHOW_FILENAMES": True,
+            "START_IN_FAVORITES": False,
+            "AUTO_SWEEP_CACHE": False
+        }
+        
+        if APP_SETTINGS_FILE.exists():
+            try:
+                content = APP_SETTINGS_FILE.read_text(encoding='utf-8')
+                for line in content.splitlines():
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        k, v = line.split('=', 1)
+                        k = k.strip()
+                        v_raw = v.strip()
+                        v_lower = v_raw.lower()
+                        if v_lower in ('true', '1', 'yes'): self.app_settings[k] = True
+                        elif v_lower in ('false', '0', 'no'): self.app_settings[k] = False
+                        else: self.app_settings[k] = v_raw
+            except Exception as e:
+                print(f"Error loading app settings: {e}")
+                
+        # Initialize active states based on settings
+        self.show_only_favorites = self.app_settings.get("START_IN_FAVORITES", False)
+
+    def _save_app_settings(self):
+        """Saves settings natively in a dynamic, robust format."""
+        APP_SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            lines = ["# Dusky GTK Wallpaper Selector Configuration"]
+            for k, v in sorted(self.app_settings.items()):
+                if isinstance(v, bool):
+                    val = 'true' if v else 'false'
+                else:
+                    val = str(v)
+                lines.append(f"{k}={val}")
+            APP_SETTINGS_FILE.write_text("\n".join(lines) + "\n", encoding='utf-8')
+        except Exception as e:
+            print(f"Error saving app settings: {e}")
 
     def _load_favorites(self):
         self.favorites.clear()
@@ -291,6 +337,14 @@ class WallpaperApp:
             btn_refresh.get_style_context().add_class("action-btn")
             btn_refresh.get_style_context().add_class("icon-btn")
 
+            # Settings Menu Button
+            btn_settings = self.Gtk.Button()
+            btn_settings.set_tooltip_text("Preferences")
+            btn_settings.set_image(self.Gtk.Image.new_from_icon_name("preferences-system-symbolic", self.Gtk.IconSize.BUTTON))
+            btn_settings.connect("clicked", self.show_settings_popover)
+            btn_settings.get_style_context().add_class("action-btn")
+            btn_settings.get_style_context().add_class("icon-btn")
+
             # Help / Shortcuts Button
             btn_help = self.Gtk.Button()
             btn_help.set_tooltip_text("Keyboard Shortcuts")
@@ -300,15 +354,20 @@ class WallpaperApp:
             btn_help.get_style_context().add_class("icon-btn")
 
             # Toggle Favorites Button
-            btn_toggle = self.Gtk.Button(label="♥")
-            btn_toggle.set_tooltip_text("Toggle view to show only favorite wallpapers [Alt+T]")
-            btn_toggle.connect("clicked", lambda w: self.trigger_action('toggle'))
-            btn_toggle.get_style_context().add_class("action-btn")
-            btn_toggle.get_style_context().add_class("toggle-btn")
+            self.btn_toggle = self.Gtk.Button(label="♥")
+            self.btn_toggle.set_tooltip_text("Toggle view to show only favorite wallpapers [Alt+T]")
+            self.btn_toggle.connect("clicked", lambda w: self.trigger_action('toggle'))
+            self.btn_toggle.get_style_context().add_class("action-btn")
+            self.btn_toggle.get_style_context().add_class("toggle-btn")
+            
+            # Apply dynamic startup highlighting if defaults specify so
+            if self.show_only_favorites:
+                self.btn_toggle.get_style_context().add_class("active-fav")
 
             action_box.pack_start(btn_refresh, False, False, 0)
+            action_box.pack_start(btn_settings, False, False, 0)
             action_box.pack_start(btn_help, False, False, 0)
-            action_box.pack_start(btn_toggle, False, False, 0)
+            action_box.pack_start(self.btn_toggle, False, False, 0)
 
             header.pack_start(action_box, False, False, 0)
             vbox.pack_start(header, False, False, 0)
@@ -349,6 +408,57 @@ class WallpaperApp:
         self.window.present()
         self.flowbox.grab_focus()
 
+    def show_settings_popover(self, widget):
+        """Displays the configuration options."""
+        popover = self.Gtk.Popover.new(widget)
+        popover.set_position(self.Gtk.PositionType.BOTTOM)
+        
+        box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_margin_start(18)
+        box.set_margin_end(18)
+        box.set_margin_top(16)
+        box.set_margin_bottom(16)
+
+        title = self.Gtk.Label(label="Preferences")
+        title.get_style_context().add_class("popover-title")
+        title.set_halign(self.Gtk.Align.START)
+        box.pack_start(title, False, False, 0)
+        
+        grid = self.Gtk.Grid()
+        grid.set_column_spacing(24)
+        grid.set_row_spacing(14)
+
+        def add_setting(row, label_text, key):
+            lbl = self.Gtk.Label(label=label_text)
+            lbl.set_halign(self.Gtk.Align.START)
+            
+            switch = self.Gtk.Switch()
+            switch.set_valign(self.Gtk.Align.CENTER)
+            switch.set_halign(self.Gtk.Align.END)
+            switch.set_active(self.app_settings.get(key, False))
+            
+            def on_toggled(switch, gparam, k=key):
+                self.app_settings[k] = switch.get_active()
+                self._save_app_settings()
+                if k == "SHOW_FILENAMES":
+                    self.apply_filename_visibility()
+
+            switch.connect("notify::active", on_toggled)
+            
+            grid.attach(lbl, 0, row, 1, 1)
+            grid.attach(switch, 1, row, 1, 1)
+
+        add_setting(0, "Auto-close after Full Apply", "AUTO_CLOSE")
+        add_setting(1, "Auto-close after Fast Apply", "FAST_APPLY_AUTO_CLOSE")
+        add_setting(2, "Show Wallpaper Filenames", "SHOW_FILENAMES")
+        add_setting(3, "Default to Favorites View", "START_IN_FAVORITES")
+        add_setting(4, "Auto-Sweep Cache on Startup", "AUTO_SWEEP_CACHE")
+            
+        box.pack_start(grid, False, False, 0)
+        box.show_all()
+        popover.add(box)
+        popover.popup()
+
     def show_shortcuts_popover(self, widget):
         """Displays a clean, non-intrusive popover detailing all keyboard shortcuts."""
         popover = self.Gtk.Popover.new(widget)
@@ -361,7 +471,7 @@ class WallpaperApp:
         box.set_margin_bottom(16)
 
         title = self.Gtk.Label(label="Keyboard Shortcuts")
-        title.get_style_context().add_class("shortcuts-title")
+        title.get_style_context().add_class("popover-title")
         title.set_halign(self.Gtk.Align.START)
         box.pack_start(title, False, False, 0)
         
@@ -458,8 +568,14 @@ class WallpaperApp:
             font-size: 1.15em;
             padding: 4px 10px;
             color: #f38ba8;
+            transition: all 0.2s ease;
         }
-        .shortcuts-title {
+        .toggle-btn.active-fav {
+            background-color: alpha(#f38ba8, 0.15);
+            border-color: alpha(#f38ba8, 0.5);
+            box-shadow: 0px 0px 8px alpha(#f38ba8, 0.2);
+        }
+        .popover-title {
             font-weight: 800;
             font-size: 1.1em;
             margin-bottom: 8px;
@@ -587,10 +703,23 @@ class WallpaperApp:
                 
         if selected:
             self.current_selected_child = selected[0]
-            if hasattr(self.current_selected_child, 'name_label'):
+            if hasattr(self.current_selected_child, 'name_label') and self.app_settings.get("SHOW_FILENAMES", True):
                 self.current_selected_child.name_label.show()
         else:
             self.current_selected_child = None
+
+    def apply_filename_visibility(self):
+        """Live updates all labels if the setting is toggled."""
+        show_labels = self.app_settings.get("SHOW_FILENAMES", True)
+        selected = self.flowbox.get_selected_children()
+        active_child = selected[0] if selected else None
+        
+        # Only the selected child gets to show its name label ever
+        if active_child and hasattr(active_child, 'name_label'):
+            if show_labels:
+                active_child.name_label.show()
+            else:
+                active_child.name_label.hide()
 
     def get_current_wallpaper_id(self) -> str:
         """Parses active theme tracking to determine what wallpaper is currently live."""
@@ -614,6 +743,10 @@ class WallpaperApp:
 
         THUMB_DIR.mkdir(parents=True, exist_ok=True)
         self.wallpapers = CacheManager.get_all_wallpapers()
+
+        # If User explicitly opts-in, sweep cache automatically in a completely non-blocking manner.
+        if self.app_settings.get("AUTO_SWEEP_CACHE", False):
+            self.executor.submit(CacheManager.sweep_orphaned_cache, self.wallpapers)
 
         current_id = self.get_current_wallpaper_id()
         target_child = None
@@ -739,7 +872,7 @@ class WallpaperApp:
         overlay.show_all()
         child.add(overlay)
         
-        if getattr(self, 'current_selected_child', None) == child:
+        if getattr(self, 'current_selected_child', None) == child and self.app_settings.get("SHOW_FILENAMES", True):
             name_label.show()
 
         return False
@@ -757,6 +890,13 @@ class WallpaperApp:
                 if path: self.toggle_favorite(path)
             case 'toggle':
                 self.show_only_favorites = not self.show_only_favorites
+                
+                if self.btn_toggle:
+                    if self.show_only_favorites:
+                        self.btn_toggle.get_style_context().add_class("active-fav")
+                    else:
+                        self.btn_toggle.get_style_context().remove_class("active-fav")
+                        
                 self.flowbox.invalidate_filter()
                 self.GLib.idle_add(self._update_visibility_and_selection)
             case 'refresh':
@@ -889,6 +1029,19 @@ class WallpaperApp:
             return
 
         print(f"Applying: {full_path} (Regen: {regen})")
+        
+        # Check settings for Auto-Close
+        should_close = False
+        if regen and self.app_settings.get("AUTO_CLOSE", False):
+            should_close = True
+        elif not regen and self.app_settings.get("FAST_APPLY_AUTO_CLOSE", False):
+            should_close = True
+            
+        if should_close:
+            # Hide the UI immediately for instant visual feedback 
+            # while the daemon processes the wallpaper change in the background.
+            self.window.hide()
+            
         state = self.parse_state_conf()
         theme_mode = state.get('THEME_MODE', 'dark')
         self.update_trackers(rel_path, theme_mode)
@@ -913,6 +1066,10 @@ class WallpaperApp:
                 if regen: subprocess.run([str(THEME_CTL), "refresh"], check=True)
             except subprocess.CalledProcessError as e:
                 print(f"Backend execution failed: {e}")
+            finally:
+                # Once backend processes complete, gracefully terminate the GTK app
+                if should_close:
+                    self.GLib.idle_add(self.window.close)
 
         threading.Thread(target=_exec_backend, daemon=True).start()
 
