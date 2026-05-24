@@ -732,7 +732,7 @@ hl.bind(
 hl.bind(
     "SUPER + Z",
     hl.dsp.workspace.toggle_special("magic"),
-    { description = "Toggle Scratchpad" }
+    { description = "Toggle Scratchpad",submap_universal = true }
 )
 
 hl.bind(
@@ -1154,7 +1154,7 @@ local alt_passthrough_apps = {
 -- ALT-PASSTHROUGH SUBMAP
 -- =============================================================================
 
-hl.define_submap("clipboard_passthru", function()
+hl.define_submap("apps_passthru", function()
 
     -- ─── Toggle clipboard off ────────────────────────────────────────────────
     hl.bind("SUPER + V", function()
@@ -1233,6 +1233,31 @@ hl.define_submap("clipboard_passthru", function()
     hl.bind("SUPER + P",             hl.dsp.exec_cmd(_osd .. " --play-pause"),         { locked = true })
 
 
+  hl.bind(
+      "SUPER + S",
+      hl.dsp.exec_cmd(dusky_scripts .. "images/dusky_screenshot.sh --region --freeze --no-notify"),
+      { description = "Quick Screenshot" }
+  )
+
+  hl.bind(
+      "SHIFT + Print",
+      hl.dsp.exec_cmd([[grim - | wl-copy && notify-send "Fullscreen Screenshot in Clipboard"]]),
+      { description = "Full Screen Quick Screenshot", locked = true }
+  )
+
+  hl.bind(
+      "SUPER + SHIFT + S",
+      hl.dsp.exec_cmd(dusky_scripts .. "images/dusky_screenshot.sh --region --freeze --annotate --no-notify --tool arrow"),
+      { description = "Screenshot and Annotation" }
+  )
+
+  hl.bind(
+      "Print",
+      hl.dsp.exec_cmd("pgrep -x swappy || (grim - | satty -f -)"),
+      { description = "Fullscreen Screenshot and Annotation" }
+  )
+
+
     -- =========================================================================
     -- ↓↓↓ ADD YOUR OWN BINDS HERE — copy any line from keybinds.lua as-is ↓↓↓
     -- =========================================================================
@@ -1252,7 +1277,7 @@ end)
 -- ─── Auto-enter / auto-exit on focus change ──────────────────────────────────
 hl.on("window.active", function(w)
     if w ~= nil and alt_passthrough_apps[w.class] then
-        hl.dispatch(hl.dsp.submap("clipboard_passthru"))
+        hl.dispatch(hl.dsp.submap("apps_passthru"))
     else
         hl.dispatch(hl.dsp.submap("reset"))
     end

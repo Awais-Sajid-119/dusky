@@ -612,7 +612,8 @@ cmd_list() {
 #==============================================================================
 # PREVIEW STATE PERSISTENCE (FZF Transform Action)
 #==============================================================================
-cmd_rotate_preview() {
+cmd_move_preview() {
+    local dir="$1"
     local current next pct
 
     current=$(read_state_value "PREVIEW_LAYOUT" "$USER_STATE_FILE") || current=""
@@ -621,17 +622,15 @@ cmd_rotate_preview() {
     pct=45
     [[ "$current" =~ ,([0-9]+)% ]] && pct="${BASH_REMATCH[1]}"
 
-    # Cycle respecting current orientation; advance, flip, hide, restore.
-    if [[ "$current" == right* || "$current" == left* ]]; then
-        if (( pct < 60 )); then
-            next="right,70%,~3,wrap-word"
+    if [[ "$dir" == "hidden" ]]; then
+        if [[ "$current" == "hidden" ]]; then
+            # If already hidden, unhide it defaulting back to right side
+            next="right,${pct}%,~3,wrap-word"
         else
-            next="down,50%,~3,wrap-word"
+            next="hidden"
         fi
-    elif [[ "$current" == up* || "$current" == down* ]]; then
-        next="hidden"
     else
-        next="right,45%,~3,wrap-word"
+        next="${dir},${pct}%,~3,wrap-word"
     fi
 
     write_state_value "PREVIEW_LAYOUT" "$next" "$USER_STATE_FILE" 2>/dev/null || :
@@ -914,19 +913,23 @@ show_menu() {
             --multi --ansi --reverse --no-sort --exact --cycle --scheme=history \
             --margin=0 --padding=0 --highlight-line \
             --border=rounded --border-label="$combined_label" --border-label-pos=3 \
-            --info=hidden --header="Ctrl-/ Rotate Preview  |  Alt-U Pin  |  Alt-Y Delete" --header-first \
+            --info=hidden --header="Alt-H/J/K/L Move Preview  |  Alt-A Pin  |  Alt-D Delete  |  Alt-W Wipe" --header-first \
             --prompt="  " --pointer="▌" --delimiter="$SEP" --with-nth=1 \
             --track --id-nth=3 \
             --preview="${SELF@Q} --preview '{2}' '{3}' $$ # \$FZF_PREVIEW_COLUMNS \$FZF_PREVIEW_LINES \$FZF_COLUMNS \$FZF_LINES" \
             --preview-window="${PREVIEW_LAYOUT:-right,45%,~3,wrap-word}" \
             --bind="resize:execute-silent($cap)" \
-            --bind="ctrl-/:transform(${SELF@Q} --rotate-preview)" \
+            --bind="alt-h:transform(${SELF@Q} --move-preview left)" \
+            --bind="alt-j:transform(${SELF@Q} --move-preview down)" \
+            --bind="alt-k:transform(${SELF@Q} --move-preview up)" \
+            --bind="alt-l:transform(${SELF@Q} --move-preview right)" \
+            --bind="alt-v:transform(${SELF@Q} --move-preview hidden)" \
             --bind="alt-i:change-query($ICON_IMG )" \
             --bind="alt-p:change-query($ICON_PIN )" \
             --bind="alt-b:change-query($ICON_BIN )" \
-            --bind="alt-u:execute-silent(${SELF@Q} --batch-pin {+f})+reload-sync(${SELF@Q} --list)" \
-            --bind="alt-y:execute-silent(${SELF@Q} --batch-delete {+f})+reload-sync(${SELF@Q} --list)" \
-            --bind="alt-t:execute-silent(${SELF@Q} --wipe)+reload-sync(${SELF@Q} --list)" \
+            --bind="alt-a:execute-silent(${SELF@Q} --batch-pin {+f})+reload-sync(${SELF@Q} --list)" \
+            --bind="alt-d:execute-silent(${SELF@Q} --batch-delete {+f})+reload-sync(${SELF@Q} --list)" \
+            --bind="alt-w:execute-silent(${SELF@Q} --wipe)+reload-sync(${SELF@Q} --list)" \
             --bind="enter:execute-silent($cap)+accept" \
             --bind="esc:execute-silent($cap)+abort" \
             --bind="ctrl-c:execute-silent($cap)+abort"
@@ -946,7 +949,7 @@ show_menu() {
         read -r p_cols t_cols p_lines t_lines < "$size_file" 2>/dev/null || true
         rm -f -- "$size_file" 2>/dev/null || :
 
-        # Re-read PREVIEW_LAYOUT in case Ctrl-/ rotated it during the session.
+        # Re-read PREVIEW_LAYOUT in case the user moved it during the session.
         local current_layout
         current_layout=$(read_state_value "PREVIEW_LAYOUT" "$USER_STATE_FILE") \
             || current_layout="$PREVIEW_LAYOUT"
@@ -1025,14 +1028,16 @@ main() {
         --capture-size)
             write_preview_size "${2:-}"
             ;;
-        --rotate-preview)
-            cmd_rotate_preview
+        --move-preview)
+            [[ $# -ge 2 ]] || exit 1
+            cmd_move_preview "$2"
             ;;
         --batch-pin)
             setup_dirs >/dev/null 2>&1 || :
             cmd_batch_pin "${2:-}"
             ;;
         --batch-delete)
+            setup_dirs >/dev/null 2>&1 || :
             cmd_batch_delete "${2:-}"
             ;;
         --wipe)
