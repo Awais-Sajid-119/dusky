@@ -211,7 +211,7 @@ declare -ra UPDATE_SEQUENCE=(
 #    "S | 045_battery_limiter.sh"
 #    "S | 050_pacman_config.sh --auto"
     "S | 051_pacman_hooks.sh --auto"
-    "S | 055_pacman_reflector.sh"
+#    "S | 055_pacman_reflector.sh"
 #    "S | 060_package_installation.sh"
 #    "U | 065_enabling_user_services.sh"
 #    "S | 070_openssh_setup.sh"
@@ -316,7 +316,7 @@ declare -ra UPDATE_SEQUENCE=(
     "U | ignore-fail | theme_ctl.sh refresh"
     "U | ignore-fail | update_counter.sh"
     "U | dusky_commands_after.sh"
-    "U | system_update.sh --pacman"
+#    "U | system_update.sh --pacman"
     "U | reboot_post_lua_update.sh"
 )
 
