@@ -27,6 +27,7 @@ declare -ra EDITOR_CATALOG=(
     "kate|0|org.kde.kate.desktop|Kate (GUI)"
     "emacs|0|emacs.desktop|Emacs (GUI)"
     "micro|1|micro.desktop|Micro (Terminal)"
+    "mousepad|0|org.xfce.mousepad.desktop|Mousepad (GUI)"
 )
 
 # Paths
