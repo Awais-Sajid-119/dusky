@@ -486,7 +486,7 @@ hl.config({
 -- ----------------------------------------------------------------------------
 hl.config({
     scrolling = {
-        fullscreen_on_one_column = false,  -- single-column workspace fills screen
+        fullscreen_on_one_column = true,  -- single-column workspace fills screen
     },
 })
 
