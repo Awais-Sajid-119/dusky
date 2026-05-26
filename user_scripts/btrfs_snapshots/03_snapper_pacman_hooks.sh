@@ -224,7 +224,19 @@ remove_sync_features() {
                         base_hook="$(basename "$hook_file")"
                         sudo ln -sf /dev/null "/etc/pacman.d/hooks/$base_hook"
                         info "Masked ALPM hook '$base_hook' to functionally neutralize '$pkg'."
-                    done < <(pacman -Qlq "$pkg" 2>/dev/null | grep '^/usr/share/libalpm/hooks/')
+                    done < <(pacman -Qlq "$pkg" 2>/dev/null | awk '/^\/usr\/share\/libalpm\/hooks\//')
+                    
+                    # Neutralize secret systemd drop-ins dynamically
+                    local dropin_file dropin_rel_path
+                    while IFS= read -r dropin_file; do
+                        [[ -n "$dropin_file" ]] || continue
+                        dropin_rel_path="$(echo "$dropin_file" | awk -F/ '{print $(NF-1) "/" $NF}')"
+                        if [[ -n "$dropin_rel_path" ]]; then
+                            sudo mkdir -p "/etc/systemd/system/$(dirname "$dropin_rel_path")"
+                            sudo ln -sf /dev/null "/etc/systemd/system/$dropin_rel_path"
+                            info "Masked systemd drop-in '$dropin_rel_path' to functionally neutralize '$pkg'."
+                        fi
+                    done < <(pacman -Qlq "$pkg" 2>/dev/null | awk '/systemd\/system\/.*\.d\/.*\.conf$/')
                 fi
             done
         fi
@@ -246,7 +258,17 @@ remove_sync_features() {
         sudo rm -f "$esp_mnt/EFI/limine/limine-snapshots.conf" 2>/dev/null || true
     fi
     
-    sudo rm -f /etc/limine-snapper-sync.conf /etc/snap-pac.ini
+    sudo rm -f /etc/snap-pac.ini 2>/dev/null || true
+    sudo rm -f /etc/limine-snapper-sync.conf 2>/dev/null || true # Cleanup legacy mistakenly created file
+
+    # Safely remove sync configurations from /etc/default/limine without destroying other settings
+    if sudo test -f /etc/default/limine; then
+        sudo sed -i -E '/^[[:space:]]*ROOT_SUBVOLUME_PATH=/d; /^[[:space:]]*ROOT_SNAPSHOTS_PATH=/d' /etc/default/limine 2>/dev/null || true
+    fi
+    
+    # Reload systemd and kill background GUI notify daemons to apply instantly
+    sudo systemctl daemon-reload 2>/dev/null || true
+    pkill -f limine-snapper-notify 2>/dev/null || true
 }
 
 install_aur_packages() {
@@ -360,9 +382,8 @@ rebuild_initramfs() {
 }
 
 configure_sync_daemon() {
-    local conf_file="/etc/limine-snapper-sync.conf" root_subvol root_subvol_path tmp
+    local conf_file="/etc/default/limine" root_subvol root_subvol_path tmp
     
-    # Gracefully recreate the file if it was wiped by a previous --auto run
     if [[ ! -f "$conf_file" ]]; then
         sudo touch "$conf_file"
         info "Regenerated missing $conf_file."
@@ -384,11 +405,14 @@ configure_sync_daemon() {
     if ! cmp -s "$tmp" "$conf_file"; then
         backup_file "$conf_file"
         atomic_write "$conf_file" "$tmp"
-        info "Configured limine-snapper-sync paths."
+        info "Configured limine-snapper-sync paths in $conf_file."
     else
         info "limine-snapper-sync paths are already up to date."
     fi
     rm -f "$tmp"; ACTIVE_TEMP_FILES=("${ACTIVE_TEMP_FILES[@]/$tmp}")
+    
+    # Silently clean up the mistakenly targeted config file from older script versions
+    sudo rm -f /etc/limine-snapper-sync.conf 2>/dev/null || true
 }
 
 configure_snap_pac() {
@@ -512,6 +536,38 @@ enable_services_and_sync() {
     fi
 }
 
+restore_sync_features() {
+    require_cmd limine-snapper-sync
+    
+    # Check and unmask any previously neutralized hooks or drop-ins to safely restore functionality
+    local _pkg _hook_file _base_hook _dropin_file _dropin_rel_path
+    for _pkg in limine-snapper-sync snap-pac; do
+        if pacman -Q "$_pkg" >/dev/null 2>&1; then
+            while IFS= read -r _hook_file; do
+                [[ -n "$_hook_file" && "$_hook_file" == *.hook ]] || continue
+                _base_hook="$(basename "$_hook_file")"
+                if [[ -L "/etc/pacman.d/hooks/$_base_hook" && "$(readlink "/etc/pacman.d/hooks/$_base_hook")" == "/dev/null" ]]; then
+                    sudo rm -f "/etc/pacman.d/hooks/$_base_hook"
+                    info "Unmasked ALPM hook '$_base_hook' to restore '$_pkg' functionality."
+                fi
+            done < <(pacman -Qlq "$_pkg" 2>/dev/null | awk '/^\/usr\/share\/libalpm\/hooks\//')
+            
+            # Dynamically unmask systemd drop-ins
+            while IFS= read -r _dropin_file; do
+                [[ -n "$_dropin_file" ]] || continue
+                _dropin_rel_path="$(echo "$_dropin_file" | awk -F/ '{print $(NF-1) "/" $NF}')"
+                if [[ -n "$_dropin_rel_path" ]]; then
+                    if [[ -L "/etc/systemd/system/$_dropin_rel_path" && "$(readlink "/etc/systemd/system/$_dropin_rel_path")" == "/dev/null" ]]; then
+                        sudo rm -f "/etc/systemd/system/$_dropin_rel_path"
+                        info "Unmasked systemd drop-in '$_dropin_rel_path' to restore '$_pkg' functionality."
+                    fi
+                fi
+            done < <(pacman -Qlq "$_pkg" 2>/dev/null | awk '/systemd\/system\/.*\.d\/.*\.conf$/')
+        fi
+    done
+    sudo systemctl daemon-reload 2>/dev/null || true
+}
+
 preflight_checks() {
     (( EUID != 0 )) || fatal "Run as regular user with sudo."
     require_cmd sudo; require_cmd pacman; require_cmd findmnt; require_cmd awk; require_cmd sed; require_cmd grep; require_cmd stat; require_cmd mktemp; require_cmd cmp; require_cmd df
@@ -537,22 +593,9 @@ execute "Rebuild initramfs" rebuild_initramfs
 
 # Master orchestration block
 if [[ "$ENABLE_SYNC_FEATURES" == true && "$ESP_SUFFICIENT_FOR_SYNC" == true ]]; then
-    require_cmd limine-snapper-sync
-    
-    # Check and unmask any previously neutralized ALPM hooks to safely restore functionality
-    for _pkg in limine-snapper-sync snap-pac; do
-        if pacman -Q "$_pkg" >/dev/null 2>&1; then
-            while IFS= read -r _hook_file; do
-                [[ -n "$_hook_file" && "$_hook_file" == *.hook ]] || continue
-                _base_hook="$(basename "$_hook_file")"
-                if [[ -L "/etc/pacman.d/hooks/$_base_hook" && "$(readlink "/etc/pacman.d/hooks/$_base_hook")" == "/dev/null" ]]; then
-                    sudo rm -f "/etc/pacman.d/hooks/$_base_hook"
-                    info "Unmasked ALPM hook '$_base_hook' to restore '$_pkg' functionality."
-                fi
-            done < <(pacman -Qlq "$_pkg" 2>/dev/null | grep '^/usr/share/libalpm/hooks/')
-        fi
-    done
-
+    # CRITICAL FIX: Unmasking is a required precondition, not an optional user action.
+    # We call it directly so manual mode users can't accidentally break their setup by skipping it.
+    restore_sync_features
     execute "Configure sync daemon" configure_sync_daemon
     execute "Install snap-pac" install_snap_pac
     execute "Configure snap-pac" configure_snap_pac
