@@ -3074,9 +3074,16 @@ execute_scripts() {
 
             if [[ -t 0 && "$OPT_FORCE" != true && "$OPT_DRY_RUN" != true ]]; then
                 local _fail_choice=""
+                
+                # 1. Drain any accidental type-ahead keystrokes to prevent instant auto-skipping
+                while read -r -t 0.01; do : ; done 2>/dev/null
+
                 printf '\n%s[ACTION REQUIRED]%s Script execution failed: %s\n' "$CLR_YLW" "$CLR_RST" "$script"
                 
-                if ! read -r -p "Do you want to [S]kip, [R]etry, or [Q]uit? (S/r/q): " _fail_choice; then
+                # 2. Split prompt across two lines to protect against stray \r from async logs wiping it
+                printf 'Do you want to [S]kip, [R]etry, or [Q]uit?\n(S/r/q): '
+                
+                if ! read -r _fail_choice; then
                     _fail_choice="q"
                 fi
 
