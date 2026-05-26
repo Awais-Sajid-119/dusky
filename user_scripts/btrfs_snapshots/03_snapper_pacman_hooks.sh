@@ -200,25 +200,35 @@ remove_sync_features() {
     pacman -Q snap-pac >/dev/null 2>&1 && pkgs_to_remove+=(snap-pac)
 
     # Completely purge the packages to kill ALPM pacman hooks
-        if (( ${#pkgs_to_remove[@]} > 0 )); then
-            info "Purging automated sync packages to enforce manual-only policy..."
-            
-            # Perform a dry-run to detect dependency conflicts silently
-            if pacman -Rnsp "${pkgs_to_remove[@]}" >/dev/null 2>&1; then
-                sudo pacman -Rns --noconfirm "${pkgs_to_remove[@]}" >/dev/null 2>&1 || true
-            else
-                warn "Dependency constraint detected. Safely filtering packages to prevent breakage..."
-                local pkg
-                for pkg in "${pkgs_to_remove[@]}"; do
-                    # Test each package individually
-                    if pacman -Rnsp "$pkg" >/dev/null 2>&1; then
-                        sudo pacman -Rns --noconfirm "$pkg" >/dev/null 2>&1 || true
-                    else
-                        warn "Skipping removal of '$pkg' (required by other installed packages)."
-                    fi
-                done
-            fi
+    if (( ${#pkgs_to_remove[@]} > 0 )); then
+        info "Purging automated sync packages to enforce manual-only policy..."
+        
+        # Perform a dry-run to detect dependency conflicts silently
+        if pacman -Rnsp "${pkgs_to_remove[@]}" >/dev/null 2>&1; then
+            sudo pacman -Rns --noconfirm "${pkgs_to_remove[@]}" >/dev/null 2>&1 || true
+        else
+            warn "Dependency constraint detected. Safely filtering packages to prevent breakage..."
+            local pkg
+            for pkg in "${pkgs_to_remove[@]}"; do
+                # Test each package individually
+                if pacman -Rnsp "$pkg" >/dev/null 2>&1; then
+                    sudo pacman -Rns --noconfirm "$pkg" >/dev/null 2>&1 || true
+                else
+                    warn "Skipping removal of '$pkg' (required by other installed packages)."
+                    
+                    # Neutralize the hostage package by masking its pacman hooks
+                    local hook_file base_hook
+                    sudo mkdir -p /etc/pacman.d/hooks
+                    while IFS= read -r hook_file; do
+                        [[ -n "$hook_file" && "$hook_file" == *.hook ]] || continue
+                        base_hook="$(basename "$hook_file")"
+                        sudo ln -sf /dev/null "/etc/pacman.d/hooks/$base_hook"
+                        info "Masked ALPM hook '$base_hook' to functionally neutralize '$pkg'."
+                    done < <(pacman -Qlq "$pkg" 2>/dev/null | grep '^/usr/share/libalpm/hooks/')
+                fi
+            done
         fi
+    fi
     
     # Forensic sweep of ESP to prevent hostage capacity issues
     local esp_mnt
@@ -333,7 +343,19 @@ EOF
 
 rebuild_initramfs() { 
     info "Recompiling early boot images to inject overlayfs hooks..."
-    sudo mkinitcpio -P < <(echo "n")
+    
+    local shopt_save
+    shopt_save=$(shopt -p nullglob || true)
+    shopt -s nullglob
+    local presets=(/etc/mkinitcpio.d/*.preset)
+    eval "$shopt_save"
+
+    if (( ${#presets[@]} > 0 )); then
+        sudo mkinitcpio -P < <(echo "n") || true
+    else
+        info "No mkinitcpio presets found. Delegating generation to limine-update..."
+    fi
+    
     sudo limine-update || true
 }
 
@@ -511,18 +533,33 @@ execute "Rebuild initramfs" rebuild_initramfs
 # Master orchestration block
 if [[ "$ENABLE_SYNC_FEATURES" == true && "$ESP_SUFFICIENT_FOR_SYNC" == true ]]; then
     require_cmd limine-snapper-sync
+    
+    # Check and unmask any previously neutralized ALPM hooks to safely restore functionality
+    for _pkg in limine-snapper-sync snap-pac; do
+        if pacman -Q "$_pkg" >/dev/null 2>&1; then
+            while IFS= read -r _hook_file; do
+                [[ -n "$_hook_file" && "$_hook_file" == *.hook ]] || continue
+                _base_hook="$(basename "$_hook_file")"
+                if [[ -L "/etc/pacman.d/hooks/$_base_hook" && "$(readlink "/etc/pacman.d/hooks/$_base_hook")" == "/dev/null" ]]; then
+                    sudo rm -f "/etc/pacman.d/hooks/$_base_hook"
+                    info "Unmasked ALPM hook '$_base_hook' to restore '$_pkg' functionality."
+                fi
+            done < <(pacman -Qlq "$_pkg" 2>/dev/null | grep '^/usr/share/libalpm/hooks/')
+        fi
+    done
+
     execute "Configure sync daemon" configure_sync_daemon
     execute "Install snap-pac" install_snap_pac
     execute "Configure snap-pac" configure_snap_pac
-    execute "Ensure home snap-pac snapshot" ensure_home_snap_pac_snapshot
+    execute "Ensure home snapshot" ensure_home_snap_pac_snapshot
 else
     if [[ "$ENABLE_SYNC_FEATURES" == false ]]; then
         info "Sync features are disabled via flag constraint."
     else
-        warn "Sync features disabled due to insufficient ESP capacity."
+        warn "$ESP_CAPACITY_WARN"
     fi
-    execute "Remove sync features" remove_sync_features
+    execute "Purge sync packages" remove_sync_features
 fi
 
-execute "Create baseline snapshot" create_post_config_baseline_snapshot
-execute "Enable services" enable_services_and_sync
+execute "Create baseline snapshots" create_post_config_baseline_snapshot
+execute "Enable services and timers" enable_services_and_sync
