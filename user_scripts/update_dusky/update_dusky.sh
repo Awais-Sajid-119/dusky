@@ -374,6 +374,7 @@ declare -ga HARD_FAILED_SCRIPTS=()
 declare -ga SOFT_FAILED_SCRIPTS=()
 declare -ga SKIPPED_SCRIPTS=()
 declare -ga EXECUTED_SCRIPTS=()
+declare -gA FAILED_SCRIPT_DIRS=()
 
 declare -ga CHANGE_PATHS=()
 declare -gA CHANGE_STATUS=()
@@ -3058,6 +3059,7 @@ execute_scripts() {
             if [[ "$ignore_fail" == "true" ]]; then
                 log WARN "$script failed (exit $rc) - ignored via ignore-fail"
                 SOFT_FAILED_SCRIPTS+=("$script")
+                FAILED_SCRIPT_DIRS["${script_path%/*}"]=1
                 break
             fi
 
@@ -3082,6 +3084,7 @@ execute_scripts() {
                     s|skip)
                         log WARN "Skipping $script (User Selection)."
                         HARD_FAILED_SCRIPTS+=("$script (skipped by user)")
+                        FAILED_SCRIPT_DIRS["${script_path%/*}"]=1
                         break
                         ;;
                     r|retry)
@@ -3092,11 +3095,13 @@ execute_scripts() {
                     *)
                         log ERROR "Stopping execution as requested."
                         HARD_FAILED_SCRIPTS+=("$script")
+                        FAILED_SCRIPT_DIRS["${script_path%/*}"]=1
                         return 1
                         ;;
                 esac
             else
                 HARD_FAILED_SCRIPTS+=("$script")
+                FAILED_SCRIPT_DIRS["${script_path%/*}"]=1
                 if [[ "$OPT_STOP_ON_FAIL" == true ]]; then
                     log ERROR "Stopping execution sequence due to --stop-on-fail"
                     return 1
@@ -3165,12 +3170,14 @@ print_summary() {
 
     log INFO "Execution Time: ${minutes}m ${seconds}s"
 
-    if ((${#HARD_FAILED_SCRIPTS[@]} > 0 || ${#SOFT_FAILED_SCRIPTS[@]} > 0 || ${#SKIPPED_SCRIPTS[@]} > 0)); then
+    if ((${#FAILED_SCRIPT_DIRS[@]} > 0)); then
         log INFO "You can run the missing scripts individually from their respective directories:"
-        local sdir=""
-        for sdir in "${SCRIPT_SEARCH_DIRS[@]}"; do
-            if [[ -d "$sdir" ]]; then
-                log RAW "    • ${sdir}/"
+        local -a sorted_dirs=()
+        mapfile -d '' -t sorted_dirs < <(printf '%s\0' "${!FAILED_SCRIPT_DIRS[@]}" | sort -z)
+        local fdir=""
+        for fdir in "${sorted_dirs[@]}"; do
+            if [[ -d "$fdir" ]]; then
+                log RAW "    • ${fdir}/"
             fi
         done
     fi
