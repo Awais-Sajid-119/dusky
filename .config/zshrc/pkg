@@ -1,5 +1,5 @@
 # =============================================================================
-# Dusky Package Atlas (Platinum Edition - Revision 17 - Apex)
+# Dusky Package Atlas (Platinum Edition - Revision 18 - Apex)
 # Architecture: FZF 0.73+ Responsive Layout, Zero-fork environment metadata,
 #               Zero-eval stream filtering, Interactive F1 Help Overlay,
 #               Zero-blink live reloading, Absolute Name-Over-Desc Tiebreaking,
@@ -46,10 +46,11 @@ case "$mode" in
 esac
 
 fetch_data() {
+    # Uses %i for true Install Date epoch timestamp (fixes the 1970-01-01 bug)
     if [ "$target" = "explicit" ]; then
-        pacman -Qeq | expac "%n|%v|%l|%m|%d" - 2>/dev/null
+        pacman -Qeq | expac "%n|%v|%i|%m|%d" - 2>/dev/null
     else
-        expac "%n|%v|%l|%m|%d" 2>/dev/null
+        expac "%n|%v|%i|%m|%d" 2>/dev/null
     fi
 }
 
@@ -191,8 +192,9 @@ bash -c "$DUSKY_PKG_PREVIEW" _ "$pkg" | sed -r "s/\x1B\[([0-9]{1,3}(;[0-9]{1,2})
         date_desc) prompt_str="   Newest (Date) ❯ " ;;
     esac
 
-    # 7. Mathematical Header Geometry Construction (Immune to editor whitespace stripping)
-    local visual_header=$(printf "  \033[1;37m%-24s\033[0m \033[38;5;238m│\033[0m \033[38;5;242m%-11s\033[0m \033[38;5;238m│\033[0m \033[38;5;242m%-10s\033[0m \033[38;5;238m│\033[0m \033[38;5;242m%10s\033[0m" "PACKAGE" "VERSION" "DATE" "SIZE")
+    # 7. Mathematical Header Geometry Construction (Perfect FZF Auto-Alignment)
+    # Removing leading spaces because modern fzf automatically indents the header to match the pointer gutter
+    local visual_header=$(printf "\033[1;37m%-24s\033[0m \033[38;5;238m│\033[0m \033[38;5;242m%-11s\033[0m \033[38;5;238m│\033[0m \033[38;5;242m%-10s\033[0m \033[38;5;238m│\033[0m \033[38;5;242m%10s\033[0m" "PACKAGE" "VERSION" "DATE" "SIZE")
 
     # 8. Data Stream Construction & Responsive FZF Execution
     local fzf_choice
@@ -328,7 +330,8 @@ pkg() {
 
     # 6. Fallback: Classic CLI List Execution (if count > 0)
     metric="${metric:-size_desc}"
-    local -a expac_args=(--timefmt='%Y-%m-%d %H:%M:%S' '%l|%m|%n')
+    # Replaced %l with %i to fix Date parsing bug in fallback mode as well
+    local -a expac_args=(--timefmt='%Y-%m-%d %H:%M:%S' '%i|%m|%n')
     local -a sort_cmd
     local title_metric=""
 
