@@ -46,11 +46,11 @@ case "$mode" in
 esac
 
 fetch_data() {
-    # Uses %i with --timefmt=%s for true Install Date epoch timestamp (fixes the 1970-01-01 bug)
+    # Uses %l with --timefmt=%s for true Install Date epoch timestamp (fixes the 1970-01-01 bug)
     if [ "$target" = "explicit" ]; then
-        pacman -Qeq | expac --timefmt=%s "%n|%v|%i|%m|%d" - 2>/dev/null
+        pacman -Qeq | expac --timefmt=%s "%n|%v|%l|%m|%d" - 2>/dev/null
     else
-        expac --timefmt=%s "%n|%v|%i|%m|%d" 2>/dev/null
+        expac --timefmt=%s "%n|%v|%l|%m|%d" 2>/dev/null
     fi
 }
 
@@ -330,8 +330,8 @@ pkg() {
 
     # 6. Fallback: Classic CLI List Execution (if count > 0)
     metric="${metric:-size_desc}"
-    # Replaced %l with %i to fix Date parsing bug in fallback mode as well
-    local -a expac_args=(--timefmt='%Y-%m-%d %H:%M:%S' '%i|%m|%n')
+    # Replaced %i with %l to fix Date parsing bug in fallback mode as well
+    local -a expac_args=(--timefmt='%Y-%m-%d %H:%M:%S' '%l|%m|%n')
     local -a sort_cmd
     local title_metric=""
 
