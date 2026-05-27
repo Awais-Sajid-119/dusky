@@ -1,9 +1,9 @@
 # =============================================================================
-# Dusky Package Atlas (Platinum Edition - Revision 6)
+# Dusky Package Atlas (Platinum Edition - Revision 7)
 # Architecture: FZF 0.72.0+ Responsive Layout, Zero-fork environment metadata,
 #               Zero-eval stream filtering, Interactive F1 Help Overlay,
-#               Zero-blink live reloading, Target-lock tracking, 
-#               Absolute priority Name-Over-Description Search Tiebreaking.
+#               Zero-blink live reloading, Absolute Name-Over-Desc Tiebreaking,
+#               Anti-Shatter Horizontal Scroll Locking & True Target Tracking.
 # Usage: pkg [command] [count]
 #        (Run without count to launch the Interactive FZF Atlas)
 # =============================================================================
@@ -143,7 +143,9 @@ pacman -Ql "$pkg" 2>/dev/null | awk '\''
         --delimiter='\|' \
         --with-nth=2 \
         --tiebreak=begin,length \
+        --no-hscroll \
         --track \
+        --id-nth=1 \
         --highlight-line \
         --prompt="$prompt_str" \
         --pointer="" \
@@ -200,7 +202,7 @@ pkg() {
     local -i count=-1
     local -i show_help=0
 
-    # 3. Argument Tokenizer (Now supports vastly expanded semantic synonyms)
+    # 3. Argument Tokenizer (Supports vastly expanded semantic synonyms)
     for arg in "$@"; do
         case "${arg:l}" in
             help|-h|--help)
