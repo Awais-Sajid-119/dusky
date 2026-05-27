@@ -3,6 +3,7 @@
 # Script: 151_systemd_bootloader.sh
 # Description: Automated, dynamically-mapped systemd-boot configuration.
 # Architecture: UEFI -> systemd-boot -> LUKS2 (sd-encrypt) -> BTRFS -> Plymouth
+# Standard: systemd v260+ (UAPI.1 Boot Loader Specification)
 # ==============================================================================
 
 set -euo pipefail
@@ -59,12 +60,6 @@ fi
 log_info "Ensuring necessary bootloader packages..."
 pacman -S --needed --noconfirm efibootmgr gawk >/dev/null
 
-# Clean up legacy bootloaders to prevent update conflicts
-if pacman -Qq limine >/dev/null 2>&1 || pacman -Qq limine-mkinitcpio-hook >/dev/null 2>&1; then
-    log_warn "Legacy Limine packages detected. Removing them to prevent bootloader conflicts..."
-    pacman -Rns --noconfirm limine limine-mkinitcpio-hook 2>/dev/null || true
-fi
-
 # ==============================================================================
 # 2. Dynamic Topology Traversal (LUKS + BTRFS)
 # ==============================================================================
@@ -88,7 +83,7 @@ if [[ "$ROOT_OPTS" =~ subvol=([^,]+) ]]; then
     ROOT_SUBVOL="${BASH_REMATCH[1]}"
 fi
 
-# 2c. Evaluate Effective Mkinitcpio Hooks (Strict Evaluation)
+# 2c. Evaluate Effective Mkinitcpio Hooks (Strict Subshell Evaluation)
 HOOKS_STR=$(env -i bash -c '
     source /etc/mkinitcpio.conf >/dev/null 2>&1 || true
     shopt -s nullglob
@@ -98,7 +93,7 @@ HOOKS_STR=$(env -i bash -c '
     echo "${HOOKS[*]:-}"
 ')
 
-# 2d. Trace LUKS Ancestor
+# 2d. Trace LUKS Ancestor & Configure Core Command Line
 CRYPT_DEV=$(lsblk -nrspo PATH,TYPE -s -- "$ROOT_BLK_DEV" | awk '$2 == "crypt" { print $1; exit }')
 CMDLINE_BASE="rw rootfstype=btrfs"
 
@@ -127,7 +122,7 @@ else
     CMDLINE_BASE="root=UUID=${ROOT_UUID} ${CMDLINE_BASE}"
 fi
 
-# 2e. Append Subvolume
+# 2e. Append Subvolume Parameter
 if [[ -n "$ROOT_SUBVOL" ]]; then
     CMDLINE_BASE="${CMDLINE_BASE} rootflags=subvol=${ROOT_SUBVOL}"
 fi
@@ -144,19 +139,21 @@ if [[ -t 0 ]]; then
 fi
 [[ -n "$ASPM_STR" ]] && CMDLINE_BASE="${CMDLINE_BASE} ${ASPM_STR}"
 
-log_success "Topology mapped securely. Base cmdline established."
+log_success "Topology mapped securely. Base kernel command line established."
 
 # ==============================================================================
-# 3. Systemd-Boot Installation
+# 3. Systemd-Boot Installation & Entropy Seeding
 # ==============================================================================
 
 log_info "Deploying systemd-boot to $ESP_MNT..."
+
+# Explicitly use --variables=yes to override the default container/chroot block
 if bootctl is-installed --esp-path="$ESP_MNT" >/dev/null 2>&1; then
     log_info "Existing systemd-boot detected. Performing update..."
-    bootctl update --esp-path="$ESP_MNT"
+    bootctl update --esp-path="$ESP_MNT" --variables=yes
 else
     log_info "Performing fresh systemd-boot installation..."
-    if ! bootctl install --esp-path="$ESP_MNT" >/dev/null 2>&1; then
+    if ! bootctl install --esp-path="$ESP_MNT" --variables=yes >/dev/null 2>&1; then
         log_warn "Installation returned non-zero (common on restricted firmware). Verifying deployment..."
         if ! bootctl is-installed --esp-path="$ESP_MNT" >/dev/null 2>&1; then
              log_error "bootctl installation failed completely."
@@ -164,7 +161,12 @@ else
         fi
     fi
 fi
-log_success "systemd-boot binaries deployed."
+
+# Systemd 243+ Security standard: Initialize Early-Boot Random Seed in ESP
+log_info "Initializing cryptographic random seed for early-boot entropy..."
+bootctl random-seed --esp-path="$ESP_MNT"
+
+log_success "systemd-boot binaries deployed and random seed generated."
 
 # Configure the main loader (default @saved enables pressing 'd' in menu to lock a default kernel)
 LOADER_CONF="$ESP_MNT/loader/loader.conf"
@@ -176,7 +178,7 @@ editor   no
 EOF
 
 # ==============================================================================
-# 4. Kernel Entry Generation
+# 4. UAPI.1 Boot Loader Specification Entry Generation
 # ==============================================================================
 
 log_info "Scanning for installed kernels and microcode..."
@@ -199,9 +201,9 @@ for kernel_path in "${KERNELS[@]}"; do
     ENTRY_FILE="$ESP_MNT/loader/entries/arch-${KNAME}.conf"
     FALLBACK_FILE="$ESP_MNT/loader/entries/arch-${KNAME}-fallback.conf"
     
-    log_info "Generating entries for: Arch Linux ($KNAME)"
+    log_info "Generating BLS Type #1 entries for: Arch Linux ($KNAME)"
 
-    # --- 1. Primary Entry (With Plymouth) ---
+    # --- Primary Entry (With Plymouth Graphical Splash) ---
     {
         printf "title   Arch Linux (%s)\n" "$KNAME"
         printf "linux   /vmlinuz-%s\n" "$KNAME"
@@ -215,7 +217,7 @@ for kernel_path in "${KERNELS[@]}"; do
         printf "options %s %s\n" "$CMDLINE_BASE" "$PLYMOUTH_ARGS"
     } > "$ENTRY_FILE"
 
-    # --- 2. Fallback Entry (Recovery Mode, No Splash) ---
+    # --- Fallback Entry (Recovery Mode, No Splash) ---
     if [[ -f "$ESP_MNT/initramfs-${KNAME}-fallback.img" ]]; then
         {
             printf "title   Arch Linux (%s - Fallback Recovery)\n" "$KNAME"
@@ -226,7 +228,7 @@ for kernel_path in "${KERNELS[@]}"; do
             done
             
             printf "initrd  /initramfs-%s-fallback.img\n" "$KNAME"
-            # Exclude PLYMOUTH_ARGS to ensure terminal output is visible during a kernel panic
+            # Exclude PLYMOUTH_ARGS to ensure terminal output is completely visible during a kernel panic
             printf "options %s\n" "$CMDLINE_BASE"
         } > "$FALLBACK_FILE"
     fi
