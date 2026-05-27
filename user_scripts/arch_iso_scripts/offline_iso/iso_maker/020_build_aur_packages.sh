@@ -26,7 +26,6 @@ declare -a AUR_PACKAGES=(
     'otf-atkinson-hyperlegible-next'
     'python-pywalfox'
     'hyprshade'
-    'hyprshutdown'
     'waypaper'
     'peaclock'
     'tray-tui'
