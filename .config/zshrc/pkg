@@ -140,7 +140,8 @@ pacman -Ql "$pkg" 2>/dev/null | awk '\''
     # 6. Bold-Stretch Immune Header Geometry
     # Explicitly applies \033[1;... (BOLD) to the PACKAGE column to force the terminal 
     # to perfectly match the pixel-width of the bolded data rows below it.
-    local visual_header="  \033[1;37mPACKAGE               \033[0m \033[38;5;238m│\033[0m \033[38;5;242mVERSION     \033[0m \033[38;5;238m│\033[0m \033[38;5;242m      SIZE\033[0m \033[38;5;238m│\033[0m \033[38;5;242mDESCRIPTION                                 [F1] Shortcuts\033[0m"
+    # Note: ANSI-C quoting ($'...') is mandatory here for Zsh to evaluate the color codes.
+    local visual_header=$'\033[1;37mPACKAGE               \033[0m \033[38;5;238m│\033[0m \033[38;5;242mVERSION     \033[0m \033[38;5;238m│\033[0m \033[38;5;242m      SIZE\033[0m \033[38;5;238m│\033[0m \033[38;5;242mDESCRIPTION                                 [F1] Shortcuts\033[0m'
 
     # 7. Data Stream Construction & Responsive FZF Execution
     local fzf_choice
