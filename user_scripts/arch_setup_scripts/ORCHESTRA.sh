@@ -53,7 +53,7 @@ INSTALL_SEQUENCE=(
 
 # ------ Setup SCRIPTS -------
 
-    "U | 005_hypr_custom_config_setup.sh"
+    "U | 005_hypr_custom_config_setup.sh --force"
     "U | 010_package_removal.sh --auto"
     "U | 015_set_thunar_terminal.py -t foot"
     "U | 020_desktop_apps_username_setter.sh"
