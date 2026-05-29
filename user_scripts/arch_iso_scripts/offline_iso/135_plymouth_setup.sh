@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Arch Linux (EFI + Btrfs root) | Dusky Minimalist Boot & LUKS Setup
 # FORENSICALLY AUDITED (SYSTEMD-BOOT / PLYMOUTH API COMPLIANT)
-# PALETTE: Olive Leaf, Black Forest, Cornsilk, Sunlit Clay, Copperwood
+# PALETTE: Pure Black (Background), Cornsilk (Logo), Olive Leaf (Logs)
 
 set -Eeuo pipefail
 export LC_ALL=C
@@ -29,6 +29,7 @@ info "Validating base dependencies..."
 require_cmd pacman
 require_cmd sed
 require_cmd grep
+require_cmd base64
 
 # --- Execution ---
 info "Ensuring Plymouth is installed..."
@@ -43,42 +44,34 @@ require_cmd plymouth-set-default-theme
 info "Deploying custom minimal theme: $THEME_NAME..."
 mkdir -p "$THEME_DIR"
 
+# Generate a pure 1x1 white pixel dynamically (Bypasses missing initramfs font glyphs)
+info "Generating mathematical pixel asset..."
+echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/wcAAwAB/4O0lQAAAABJRU5ErkJggg==" | base64 -d > "${THEME_DIR}/pixel.png"
+
 # Generate .plymouth configuration
-# ConsoleLogBackgroundColor maps exactly to Black Forest (#283618)
 cat << EOF > "${THEME_DIR}/${THEME_NAME}.plymouth"
 [Plymouth Theme]
 Name=Dusky Minimal
-Description=Pure typographic LUKS prompt and splash (Earthy Palette).
+Description=Pure typographic LUKS prompt with geometric primitives.
 ModuleName=script
 
 [script]
 ImageDir=${THEME_DIR}
 ScriptFile=${THEME_DIR}/${THEME_NAME}.script
-ConsoleLogBackgroundColor=0x283618
+ConsoleLogBackgroundColor=0x000000
 MonospaceFont=Cantarell 11
 Font=Cantarell 11
 EOF
 
 # Generate .script file (The core visual logic)
 cat << 'EOF' > "${THEME_DIR}/${THEME_NAME}.script"
-# ==========================================================
-# PALETTE MAPPING (4-Decimal Precision for Zero Color Drift)
-# Black Forest (#283618) : 0.1569, 0.2118, 0.0941
-# Cornsilk     (#fefae0) : 0.9961, 0.9804, 0.8784
-# Sunlit Clay  (#dda15e) : 0.8667, 0.6314, 0.3686
-# Copperwood   (#bc6c25) : 0.7373, 0.4235, 0.1451
-# Olive Leaf   (#606c38) : 0.3765, 0.4235, 0.2196
-# ==========================================================
+# --- Pure Black Background (Maximum Contrast) ---
+Window.SetBackgroundTopColor(0.0, 0.0, 0.0);
+Window.SetBackgroundBottomColor(0.0, 0.0, 0.0);
 
-# --- Background Setup (Black Forest) ---
-Window.SetBackgroundTopColor(0.1569, 0.2118, 0.0941);
-Window.SetBackgroundBottomColor(0.1569, 0.2118, 0.0941);
+global.pixel_image = Image("pixel.png");
 
-# --- Native Asset Generation ---
-# Render a massive Full Block to bypass edge anti-aliasing, then sample a pure 1x1 Sunlit Clay pixel
-global.pixel_image = Image.Text("█", 0.8667, 0.6314, 0.3686, 1.0, "Cantarell 48").Scale(1, 1);
-
-# --- Logo & Animation Engine (Cornsilk) ---
+# --- Logo & Animation Engine (Cornsilk text: #fefae0) ---
 global.logo_image = Image.Text("dusky", 0.9961, 0.9804, 0.8784, 1.0, "Cantarell 36");
 global.logo_sprite = Sprite(global.logo_image);
 global.logo_sprite.SetPosition(
@@ -93,8 +86,8 @@ global.password_dialog_active = 0;
 fun refresh_callback () {
     if (global.password_dialog_active == 0) {
         global.animation_time += 0.025;
-        # Sine wave mapped to opacity: 0.6 to 1.0 for a subtle breath
-        opacity = 0.8 + (0.2 * Math.Sin(global.animation_time * 2.0));
+        # Subtle breathing effect mapped to opacity (0.7 to 1.0)
+        opacity = 0.85 + (0.15 * Math.Sin(global.animation_time * 2.0));
         global.logo_sprite.SetOpacity(opacity);
     } else {
         global.logo_sprite.SetOpacity(1.0);
@@ -102,7 +95,7 @@ fun refresh_callback () {
 }
 Plymouth.SetRefreshFunction(refresh_callback);
 
-# --- Minimal Progress Line (3 pixels tall, Sunlit Clay) ---
+# --- Minimal Progress Line (3 pixels tall) ---
 global.progress_sprite = Sprite();
 global.dialog_y = global.logo_sprite.GetY() + global.logo_image.GetHeight() + 45;
 global.progress_sprite.SetPosition(0, global.dialog_y, 10);
@@ -118,10 +111,11 @@ fun progress_callback (duration, progress) {
     bar_width = Math.Int(max_width * progress);
     if (bar_width < 1) bar_width = 1;
     
+    # Scale base64 pixel to a 3px tall line, opacity 0.8
     scaled_bar = global.pixel_image.Scale(bar_width, 3);
     global.progress_sprite.SetImage(scaled_bar);
     global.progress_sprite.SetX(Window.GetWidth() / 2 - bar_width / 2);
-    global.progress_sprite.SetOpacity(1);
+    global.progress_sprite.SetOpacity(0.8);
 }
 Plymouth.SetBootProgressFunction(progress_callback);
 
@@ -130,48 +124,53 @@ global.prompt_sprite = Sprite();
 global.prompt_sprite.SetPosition(Window.GetWidth() / 2, global.dialog_y, 20);
 global.prompt_sprite.SetOpacity(0);
 
-global.bullet_container = Sprite();
-global.bullet_container.SetPosition(Window.GetWidth() / 2, global.dialog_y + 30, 20);
-global.bullet_container.SetOpacity(0);
+global.bullets = [];
 
 fun display_normal_callback () {
     global.password_dialog_active = 0;
     global.prompt_sprite.SetOpacity(0);
-    global.bullet_container.SetOpacity(0);
+    for (index = 0; global.bullets[index]; index++) {
+        global.bullets[index].SetOpacity(0);
+    }
 }
 
-fun display_password_callback (prompt_text, bullets) {
+fun display_password_callback (prompt_text, bullet_count) {
     global.password_dialog_active = 1;
     global.progress_sprite.SetOpacity(0);
     
-    # Render prompt text (Cornsilk slightly muted via alpha channel for hierarchy)
+    # Render prompt text (Cornsilk slightly muted via alpha channel)
     prompt_image = Image.Text(prompt_text, 0.9961, 0.9804, 0.8784, 0.8, "Cantarell 12");
     global.prompt_sprite.SetImage(prompt_image);
     global.prompt_sprite.SetX(Window.GetWidth() / 2 - prompt_image.GetWidth() / 2);
     global.prompt_sprite.SetOpacity(1);
     
-    bullet_string = "";
-    for (index = 0; index < bullets; index++) {
-        bullet_string += "● ";
+    # Render Geometric Bullets (6x6 squares to avoid font glyph issues)
+    bullet_size = 6;
+    bullet_spacing = 10;
+    total_width = bullet_count * bullet_size + (bullet_count - 1) * bullet_spacing;
+    start_x = Window.GetWidth() / 2 - total_width / 2;
+    bullet_y = global.prompt_sprite.GetY() + prompt_image.GetHeight() + 20;
+    
+    # Clear old bullets
+    for (index = 0; global.bullets[index]; index++) {
+        global.bullets[index].SetOpacity(0);
     }
     
-    if (bullets > 0) {
-        # Render Bullets (Copperwood)
-        bullet_image = Image.Text(bullet_string, 0.7373, 0.4235, 0.1451, 1.0, "Cantarell 14");
-        global.bullet_container.SetImage(bullet_image);
-        global.bullet_container.SetX(Window.GetWidth() / 2 - bullet_image.GetWidth() / 2);
-        global.bullet_container.SetY(global.prompt_sprite.GetY() + prompt_image.GetHeight() + 15);
-        global.bullet_container.SetOpacity(1);
-    } else {
-        global.bullet_container.SetOpacity(0);
+    # Draw new bullets
+    for (index = 0; index < bullet_count; index++) {
+        if (!global.bullets[index]) {
+            global.bullets[index] = Sprite(global.pixel_image.Scale(bullet_size, bullet_size));
+        }
+        global.bullets[index].SetPosition(start_x + index * (bullet_size + bullet_spacing), bullet_y, 20);
+        global.bullets[index].SetOpacity(0.9);
     }
 }
 Plymouth.SetDisplayNormalFunction(display_normal_callback);
 Plymouth.SetDisplayPasswordFunction(display_password_callback);
 
-# --- Systemd Message Broadcasting (Olive Leaf) ---
+# --- Systemd Message Broadcasting (Olive Leaf: #606c38) ---
 global.message_sprite = Sprite();
-global.message_sprite.SetPosition(Window.GetWidth() / 2, Window.GetHeight() * 0.85, 5); # Lowest Z-Index
+global.message_sprite.SetPosition(Window.GetWidth() / 2, Window.GetHeight() * 0.85, 5);
 
 fun display_message_callback (text) {
     my_image = Image.Text(text, 0.3765, 0.4235, 0.2196, 1.0, "Cantarell 10");
@@ -212,4 +211,4 @@ fi
 info "Setting default theme to ${THEME_NAME} and rebuilding initramfs..."
 plymouth-set-default-theme -R "$THEME_NAME"
 
-info "Dusky Plymouth deployment (Earthy Palette) and initramfs generation successful."
+info "Dusky Plymouth deployment complete. Initramfs has been rebuilt."
