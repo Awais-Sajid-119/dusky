@@ -7,7 +7,8 @@
 #   • Race-condition immune smaps_rollup PSS engine
 #   • Hyprland-specific IPC diagnostics via JSON (jq) & Signature
 #   • Transparent Hugepage (THP) analysis
-#   • ZRAM / ZSWAP efficiency & Virtual Overcommit Pressure
+#   • ZRAM / ZSWAP efficiency & Physical Pool tracking
+#   • Mlocked / QEMU memory tracking
 #   • Wayland/tmpfs shared memory & XDG_RUNTIME sockets
 #   • Universal DMA-BUF GPU buffers (Kernel 6.x and 7.x formats)
 #   • Kernel slab leak detection
@@ -160,10 +161,19 @@ COMMITTED=$(get_mem Committed_AS)
 COMMIT_LIMIT=$(get_mem CommitLimit)
 HW_CORRUPTED=$(get_mem HardwareCorrupted)
 
-ACCOUNTED_KB=$(( ANON_PAGES + BUFFERS + CACHED + K_RECLAIMABLE + K_STACK \
-               + PAGE_TABLES + SEC_PAGE_TABLES + SWAP_CACHED + S_UNRECLAIM \
-               + UNEVICTABLE + PERCPU + VMALLOC_USED + MEM_FREE ))
-UNACCOUNTED_KB=$(( MEM_TOTAL - ACCOUNTED_KB ))
+# Refined Calculations
+FILE_CACHE=$(( CACHED - SHMEM ))
+(( FILE_CACHE < 0 )) && FILE_CACHE=0
+
+ZRAM_TOTAL_KB=$(
+    zramctl --bytes --noheadings --output TOTAL 2>/dev/null \
+    | awk '{s+=$1} END {printf "%.0f", s/1024}'
+)
+[[ -z "$ZRAM_TOTAL_KB" ]] && ZRAM_TOTAL_KB=0
+
+KERNEL_CORE_KB=$(( K_RECLAIMABLE + S_UNRECLAIM + K_STACK + PAGE_TABLES + SEC_PAGE_TABLES + PERCPU ))
+KNOWN_KB=$(( MEM_FREE + ANON_PAGES + SHMEM + FILE_CACHE + BUFFERS + KERNEL_CORE_KB + ZRAM_TOTAL_KB ))
+RESIDUAL_KB=$(( MEM_TOTAL - KNOWN_KB ))
 
 echo "\`\`\`text"
 printf "%-45s %8s MB\n" "Total Usable RAM (MemTotal):"       "$(to_mb $MEM_TOTAL)"
@@ -172,7 +182,7 @@ printf "%-45s %8s MB\n" "Raw Free (MemFree):"                "$(to_mb $MEM_FREE)
 echo ""
 echo "[ NAMED ALLOCATIONS ]"
 printf "%-45s %8s MB\n" "  Userspace Anon (AnonPages):"        "$(to_mb $ANON_PAGES)"
-printf "%-45s %8s MB\n" "  Page Cache / File-backed (Cached):" "$(to_mb $CACHED)"
+printf "%-45s %8s MB\n" "  Page Cache / File-backed (Cached):" "$(to_mb $FILE_CACHE)"
 printf "%-45s %8s MB\n" "  Shared Memory/Tmpfs (Shmem):"       "$(to_mb $SHMEM)"
 printf "%-45s %8s MB\n" "  Buffer Cache (Buffers):"            "$(to_mb $BUFFERS)"
 printf "%-45s %8s MB\n" "  Swap Cache (SwapCached):"           "$(to_mb $SWAP_CACHED)"
@@ -190,15 +200,37 @@ printf "%-45s %8s MB\n" "  Per-CPU Allocations (Percpu):"      "$(to_mb $PERCPU)
 printf "%-45s %8s MB\n" "  vmalloc Used (VmallocUsed):"        "$(to_mb $VMALLOC_USED)"
 echo ""
 echo "[ SUMMARY ]"
-printf "%-45s %8s MB\n" "  All Named Fields (Accounted):"     "$(to_mb $ACCOUNTED_KB)"
-printf "%-45s %8s MB\n" "  Unaccounted (firmware/drivers):"   "$(to_mb $UNACCOUNTED_KB)"
+printf "%-45s %8s MB\n" "  ZRAM Physical Pool Estimate:"      "$(to_mb $ZRAM_TOTAL_KB)"
+printf "%-45s %8s MB\n" "  Known & Tracked (Known_KB):"       "$(to_mb $KNOWN_KB)"
+printf "%-45s %8s MB\n" "  Residual estimate (Residual_KB):"  "$(to_mb $RESIDUAL_KB)"
 echo "\`\`\`"
 
 echo "> **Diagnostic Note:**"
-echo "> * Unaccounted < 300 MB → Healthy (Standard firmware hardware-reserved limits)."
-echo '> * Unaccounted > 600 MB → **ALERT:** A GPU driver (e.g., `amdgpu` GTT) or a rogue kernel module is leaking anonymous memory bypassing tracking.'
+echo "> * Residual estimate > 1-2 GB → Could be GPU memory (e.g., \`amdgpu\` GTT), untracked fragmentation, or a rogue module."
 echo "> * SUnreclaim > 500 MB → **ALERT:** Kernel slab leak (See Section 7)."
 echo ""
+
+if [[ "$UNEVICTABLE" -gt 0 ]]; then
+    echo "### Locked/Unevictable Memory Consumers (Top 10)"
+    echo "> *Usually Virtual Machines (QEMU/libvirt), VFIO setups, or secure enclaves locking memory down.*"
+    echo "\`\`\`text"
+    (
+        set +e +o pipefail
+        grep -H '^VmLck:' /proc/[0-9]*/status 2>/dev/null \
+          | awk '$2 > 0 {
+              pid=$1
+              gsub("/proc/|/status:VmLck:", "", pid)
+              printf "%8.1f MB  PID %s\n", $2/1024, pid
+          }' \
+          | sort -nr \
+          | head -10 | while read -r sz unit p_lbl pid; do
+              comm=$(cat "/proc/$pid/comm" 2>/dev/null || echo "unknown")
+              printf "%8s %s  PID %-8s (%s)\n" "$sz" "$unit" "$pid" "$comm"
+          done
+    ) || true
+    echo "\`\`\`"
+    echo ""
+fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 2 — COMMIT PRESSURE & VIRTUAL OVERCOMMIT
@@ -417,11 +449,11 @@ if [[ -r "$DMABUF_INFO" ]]; then
             # Tabular Format (Kernel 6.8+)
             grep -E '^[0-9]+' "$DMABUF_INFO" 2>/dev/null | awk '{print $1, $5}' > /tmp/dmabuf_sizes.txt || true
             
-            # Legacy Format (Kernel < 6.8)
-            grep -E '^size:' "$DMABUF_INFO" 2>/dev/null | awk '{sz=$2; exp="unknown"; for(i=1;i<=NF;i++) if($i=="exp_name:") exp=$(i+1); print sz, exp}' >> /tmp/dmabuf_sizes.txt || true
+            # Legacy Format (Kernel < 6.8). Note: Using "exporter" to avoid awk exp() math function namespace collision!
+            grep -E '^size:' "$DMABUF_INFO" 2>/dev/null | awk '{sz=$2; exporter="unknown"; for(i=1;i<=NF;i++) if($i=="exp_name:") exporter=$(i+1); print sz, exporter}' >> /tmp/dmabuf_sizes.txt || true
             
-            sort -k1 -rn /tmp/dmabuf_sizes.txt | head -10 | while read -r sz exp; do
-                printf "| %.1f | %s |\n" "$(awk "BEGIN {printf \"%.1f\", $sz/1048576}")" "$exp"
+            sort -k1 -rn /tmp/dmabuf_sizes.txt | head -10 | while read -r sz exporter; do
+                printf "| %.1f | %s |\n" "$(awk "BEGIN {printf \"%.1f\", $sz/1048576}")" "$exporter"
             done
             rm -f /tmp/dmabuf_sizes.txt
         ) || true
@@ -434,10 +466,11 @@ if [[ -r "$DMABUF_INFO" ]]; then
         (
             set +e +o pipefail
             grep -E '^[0-9]+' "$DMABUF_INFO" 2>/dev/null | awk '{print $5}' > /tmp/dmabuf_exp.txt || true
-            grep -E '^size:' "$DMABUF_INFO" 2>/dev/null | awk '{exp="unknown"; for(i=1;i<=NF;i++) if($i=="exp_name:") exp=$(i+1); print exp}' >> /tmp/dmabuf_exp.txt || true
+            # Again, explicitly avoiding awk's "exp" internal function.
+            grep -E '^size:' "$DMABUF_INFO" 2>/dev/null | awk '{exporter="unknown"; for(i=1;i<=NF;i++) if($i=="exp_name:") exporter=$(i+1); print exporter}' >> /tmp/dmabuf_exp.txt || true
             
-            sort /tmp/dmabuf_exp.txt | uniq -c | sort -rn | while read -r cnt exp; do
-                printf "| %s | %d |\n" "$exp" "$cnt"
+            sort /tmp/dmabuf_exp.txt | uniq -c | sort -rn | while read -r cnt exporter; do
+                printf "| %s | %d |\n" "$exporter" "$cnt"
             done
             rm -f /tmp/dmabuf_exp.txt
         ) || true
@@ -532,11 +565,12 @@ fi
 
 echo ""
 echo "### C. Screencopy / OBS / Portals"
-SC_PIDS=$(pgrep -f 'screencopy\|wlr-randr\|obs\|pipewire\|sunshine\|xdg-desktop-portal' 2>/dev/null || true)
+# Fixed pgrep regex: Uses ERE | rather than BRE \|
+SC_PIDS=$(pgrep -af 'screencopy|wlr-randr|obs|pipewire|sunshine|xdg-desktop-portal' 2>/dev/null || true)
 if [[ -n "$SC_PIDS" ]]; then
     echo "Active screencasting/portal processes (These pin multiple 4K/1440p DMA-BUFs for sharing):"
     echo "\`\`\`text"
-    for p in $SC_PIDS; do
+    for p in $(echo "$SC_PIDS" | awk '{print $1}'); do
         comm=$(cat /proc/"$p"/comm 2>/dev/null || echo '?')
         echo "  [PID $p] $comm"
     done
@@ -602,9 +636,9 @@ cat << 'GUIDE'
 2. **High Shmem + large `/dev/shm` entries:**
    - Wayland pixel buffer leak. Check which compositor client is not releasing `wl_shm` buffers. Restart the offending app.
 
-3. **High Unaccounted (Section 1) + high DMA-BUF total (Section 8):**
+3. **High Residual estimate (Section 1) + high DMA-BUF total (Section 8):**
    - GPU driver holding system RAM as framebuffers. On AMD: `amdgpu` GTT. On NVIDIA: driver anonymous memory.
-   - *Try:* `echo 3 > /proc/sys/vm/drop_caches` (only reclaims slab/cache, not GPU memory).
+   - Or memory fragmentation. Try: `echo 3 > /proc/sys/vm/drop_caches` (only reclaims slab/cache, not GPU memory).
 
 4. **High SUnreclaim (Slab, Section 7):**
    - Kernel slab leak. Run: `watch -n2 'cat /proc/meminfo | grep -E "Slab|SUnreclaim"'`
@@ -617,10 +651,11 @@ cat << 'GUIDE'
 6. **AnonHugePages is large (Section 1 & 9):**
    - THP is inflating reported RSS. This is NOT a leak but makes `ps`/`htop` show inflated values. The PSS table (Section 4) calculates this away perfectly.
 
-7. **Memory grows over time and never returns:**
-   - A. Open/close many windows and watch DMA-BUF total (Section 8). Known Hyprland bug.
-   - B. Reload Hyprland config many times and watch Hyprland PSS (Section 4).
-   - C. Run under Valgrind/heaptrack as a last resort.
+7. **ZRAM Physical Pool is very large (Section 1 & 3):**
+   - ZRAM consumes actual system memory to compress the swap space. If your `Residual estimate` is low, your RAM is safely managed by compressed swap, not leaking. 
+
+8. **Unevictable memory is large (Section 1):**
+   - Usually Virtual Machines (QEMU/libvirt), VFIO setups, or secure enclaves locking memory down.
 GUIDE
 
 echo ""
