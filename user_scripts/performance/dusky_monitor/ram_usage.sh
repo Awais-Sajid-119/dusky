@@ -4,15 +4,15 @@
 # ============================================================================
 # Covers every known RAM sink on a modern Wayland/Hyprland desktop:
 #   • Correct full /proc/meminfo accounting (all kernel 7.x fields)
-#   • Race-condition immune smaps_rollup PSS engine
+#   • Race-condition immune, zero-fork smaps_rollup PSS engine
 #   • Hyprland-specific IPC diagnostics via JSON (jq) & Signature
-#   • Transparent Hugepage (THP) analysis
+#   • Transparent Hugepage (THP & mTHP) analysis
 #   • ZRAM / ZSWAP efficiency & Physical Pool tracking
 #   • Mlocked / QEMU memory tracking
 #   • Wayland/tmpfs shared memory & XDG_RUNTIME sockets
-#   • Universal DMA-BUF GPU buffers (Kernel 6.x and 7.x formats)
+#   • Universal DMA-BUF GPU buffers (debugfs & sysfs fallbacks)
 #   • Kernel slab leak detection
-#   • Hyprland Headless / Render Leak known vectors & OOM History
+#   • Hyprland Headless / Render Leak vectors (Dynamic IPC) & OOM History
 # ============================================================================
 
 set -euo pipefail
@@ -43,13 +43,7 @@ command -v jq       >/dev/null 2>&1 || MISSING_PKGS+=("jq")
 
 if [[ ${#MISSING_PKGS[@]} -gt 0 ]]; then
     echo -e "\e[1;34m[*] Missing packages: ${MISSING_PKGS[*]}. Installing...\e[0m"
-    if [[ "$TARGET_USER" != "root" ]] && command -v paru >/dev/null 2>&1; then
-        sudo -u "$TARGET_USER" paru -S --noconfirm --needed "${MISSING_PKGS[@]}"
-    elif [[ "$TARGET_USER" != "root" ]] && command -v yay >/dev/null 2>&1; then
-        sudo -u "$TARGET_USER" yay -S --noconfirm --needed "${MISSING_PKGS[@]}"
-    else
-        pacman -S --noconfirm --needed "${MISSING_PKGS[@]}" || true
-    fi
+    pacman -S --noconfirm --needed "${MISSING_PKGS[@]}" || true
 fi
 
 # ── 3. HELPERS ───────────────────────────────────────────────────────────────
@@ -70,28 +64,34 @@ pss_table() {
     local tmp
     tmp=$(mktemp)
     
-    # Subshell to protect against SIGPIPE crashes when head closes the stream
+    # Single-pass C-level stream processing. Race-condition immune & zero-fork optimized.
     (
         set +e +o pipefail
-        for pid_dir in /proc/[0-9]*/; do
-            local pid="${pid_dir//[^0-9]/}"
-            [[ -z "$pid" ]] && continue
-            local rollup="${pid_dir}smaps_rollup"
+        grep -HE '^(Pss|Private_Clean|Private_Dirty|Rss|Swap):' /proc/[0-9]*/smaps_rollup 2>/dev/null | awk -F':' '
+        {
+            split($1, path, "/");
+            pid = path[3];
+            metric = $2;
+            val = $3 + 0;
             
-            # Safe extraction: process might die mid-read.
-            local comm
-            comm=$(cat "${pid_dir}comm" 2>/dev/null || echo "?")
-            comm="${comm:0:20}" 
-            
-            local stats
-            if ! stats=$(awk '/^Pss:/ {pss+=$2} /^Private_Clean:/ {pc+=$2} /^Private_Dirty:/ {pd+=$2} /^Rss:/ {rss+=$2} /^Swap:/ {swap+=$2} END {print pc+pd, pss+0, rss+0, swap+0}' "$rollup" 2>/dev/null); then
-                continue
-            fi
-            
-            [[ -z "$stats" ]] && continue
-            read -r uss pss rss swap <<< "$stats"
-            printf '%d\t%s\t%d\t%d\t%d\t%d\n' "$pid" "$comm" "$uss" "$pss" "$rss" "$swap"
-        done | sort -t$'\t' -k4 -rn | head -n "$top_n" > "$tmp"
+            if (metric == "Pss") pss[pid] += val
+            else if (metric == "Private_Clean" || metric == "Private_Dirty") uss[pid] += val
+            else if (metric == "Rss") rss[pid] += val
+            else if (metric == "Swap") swap[pid] += val
+        }
+        END {
+            for (p in pss) {
+                comm_file = "/proc/" p "/comm"
+                if ((getline comm < comm_file) <= 0) {
+                    comm = "?"
+                }
+                close(comm_file)
+                comm = substr(comm, 1, 20)
+                gsub(/\n|\r/, "", comm) 
+                
+                print p "\t" comm "\t" uss[p]+0 "\t" pss[p]+0 "\t" rss[p]+0 "\t" swap[p]+0
+            }
+        }' | sort -t$'\t' -k4 -rn | head -n "$top_n" > "$tmp"
     )
 
     awk -F'\t' 'BEGIN {
@@ -166,9 +166,15 @@ FILE_CACHE=$(( CACHED - SHMEM ))
 (( FILE_CACHE < 0 )) && FILE_CACHE=0
 
 ZRAM_TOTAL_KB=$(
-    zramctl --bytes --noheadings --output TOTAL 2>/dev/null \
+    zramctl --bytes --noheadings --output MEM-USED 2>/dev/null \
     | awk '{s+=$1} END {printf "%.0f", s/1024}'
 )
+[[ -z "$ZRAM_TOTAL_KB" || "$ZRAM_TOTAL_KB" == "0" ]] && {
+    ZRAM_TOTAL_KB=$(
+        zramctl --bytes --noheadings --output TOTAL 2>/dev/null \
+        | awk '{s+=$1} END {printf "%.0f", s/1024}'
+    )
+}
 [[ -z "$ZRAM_TOTAL_KB" ]] && ZRAM_TOTAL_KB=0
 
 KERNEL_CORE_KB=$(( K_RECLAIMABLE + S_UNRECLAIM + K_STACK + PAGE_TABLES + SEC_PAGE_TABLES + PERCPU ))
@@ -216,17 +222,15 @@ if [[ "$UNEVICTABLE" -gt 0 ]]; then
     echo "\`\`\`text"
     (
         set +e +o pipefail
-        grep -H '^VmLck:' /proc/[0-9]*/status 2>/dev/null \
-          | awk '$2 > 0 {
-              pid=$1
-              gsub("/proc/|/status:VmLck:", "", pid)
-              printf "%8.1f MB  PID %s\n", $2/1024, pid
-          }' \
-          | sort -nr \
-          | head -10 | while read -r sz unit p_lbl pid; do
-              comm=$(cat "/proc/$pid/comm" 2>/dev/null || echo "unknown")
-              printf "%8s %s  PID %-8s (%s)\n" "$sz" "$unit" "$pid" "$comm"
-          done
+        for pid_dir in /proc/[0-9]*/; do
+            [[ -r "${pid_dir}status" ]] || continue
+            vmlck=$(awk '/^VmLck:/{print $2}' "${pid_dir}status" 2>/dev/null || echo 0)
+            [[ "$vmlck" -gt 0 ]] 2>/dev/null || continue
+            pid="${pid_dir#/proc/}"
+            pid="${pid%/}"
+            comm=$(head -c 20 "${pid_dir}comm" 2>/dev/null || echo "unknown")
+            printf "%10.1f MB  PID %-8s (%s)\n" "$(awk "BEGIN {printf \"%.1f\", $vmlck/1024}")" "$pid" "$comm"
+        done | sort -t'M' -k1 -rn | head -10
     ) || true
     echo "\`\`\`"
     echo ""
@@ -392,13 +396,14 @@ if [[ -r /proc/slabinfo ]]; then
     echo "NAME                       NUM_OBJS  OBJSIZE  TOTAL_MB"
     echo "------------------------------------------------------"
     
-    # Subshell to prevent head -15 from throwing SIGPIPE crashes
+    # Subshell decoupled for numeric accuracy: Sort first, format second.
     (
         set +e +o pipefail
         awk 'NR>2 && NF>=4 {
-            total_bytes = $3 * $4
-            printf "%-26s %9d  %7d  %7.1f\n", $1, $3, $4, total_bytes/1048576
-        }' /proc/slabinfo | sort -k4 -rn | head -15
+            print $1, $3, $4, ($3 * $4)/1048576
+        }' /proc/slabinfo | sort -k4 -rn | head -15 | awk '{
+            printf "%-26s %9d  %7d  %7.1f\n", $1, $2, $3, $4
+        }'
     ) || true
     echo "\`\`\`"
     
@@ -428,8 +433,10 @@ if ! mountpoint -q /sys/kernel/debug 2>/dev/null; then
 fi
 
 DMABUF_INFO=/sys/kernel/debug/dma_buf/bufinfo
+DMABUF_SYSFS=/sys/kernel/dmabuf/buffers
+
 if [[ -r "$DMABUF_INFO" ]]; then
-    # Universal Parser for both Kernel 6.x (Legacy) and 7.x (Tabular) Formats
+    # Primary: debugfs bufinfo (full detail)
     TOTAL_BYTES=$(awk '/^[0-9]+/ {sum+=$1} /^size:/ {sum+=$2} END {print sum+0}' "$DMABUF_INFO" 2>/dev/null || echo 0)
     BUF_COUNT=$(awk '/^[0-9]+/ {count++} /^size:/ {count++} END {print count+0}' "$DMABUF_INFO" 2>/dev/null || echo 0)
     
@@ -442,14 +449,9 @@ if [[ -r "$DMABUF_INFO" ]]; then
         echo "| Size (MB) | Exporter |"
         echo "|---|---|"
         
-        # Completely decoupled extraction using temp files to guarantee 0% chance of SIGPIPE swallows
         (
             set +e +o pipefail
-            
-            # Tabular Format (Kernel 6.8+)
             grep -E '^[0-9]+' "$DMABUF_INFO" 2>/dev/null | awk '{print $1, $5}' > /tmp/dmabuf_sizes.txt || true
-            
-            # Legacy Format (Kernel < 6.8). Note: Using "exporter" to avoid awk exp() math function namespace collision!
             grep -E '^size:' "$DMABUF_INFO" 2>/dev/null | awk '{sz=$2; exporter="unknown"; for(i=1;i<=NF;i++) if($i=="exp_name:") exporter=$(i+1); print sz, exporter}' >> /tmp/dmabuf_sizes.txt || true
             
             sort -k1 -rn /tmp/dmabuf_sizes.txt | head -10 | while read -r sz exporter; do
@@ -466,7 +468,6 @@ if [[ -r "$DMABUF_INFO" ]]; then
         (
             set +e +o pipefail
             grep -E '^[0-9]+' "$DMABUF_INFO" 2>/dev/null | awk '{print $5}' > /tmp/dmabuf_exp.txt || true
-            # Again, explicitly avoiding awk's "exp" internal function.
             grep -E '^size:' "$DMABUF_INFO" 2>/dev/null | awk '{exporter="unknown"; for(i=1;i<=NF;i++) if($i=="exp_name:") exporter=$(i+1); print exporter}' >> /tmp/dmabuf_exp.txt || true
             
             sort /tmp/dmabuf_exp.txt | uniq -c | sort -rn | while read -r cnt exporter; do
@@ -476,10 +477,50 @@ if [[ -r "$DMABUF_INFO" ]]; then
         ) || true
 
     else
-        echo "**No active DMA-BUFs tracked.** (Format mismatch or idle system)."
+        echo "**No active DMA-BUFs tracked via debugfs.** (Format mismatch or idle system)."
+    fi
+
+elif [[ -d "$DMABUF_SYSFS" ]]; then
+    # Fallback: sysfs interface (CONFIG_DMABUF_SYSFS_STATS)
+    echo "> *Using sysfs DMA-BUF stats (debugfs unavailable — lockdown or not mounted).*"
+    echo ""
+    TOTAL_BYTES=0
+    BUF_COUNT=0
+    SYSFS_LINES=""
+    for buf_dir in "$DMABUF_SYSFS"/*/; do
+        [[ -d "$buf_dir" ]] || continue
+        sz=$(cat "$buf_dir/size" 2>/dev/null || echo 0)
+        exp=$(cat "$buf_dir/exporter_name" 2>/dev/null || echo "unknown")
+        TOTAL_BYTES=$(( TOTAL_BYTES + sz ))
+        BUF_COUNT=$(( BUF_COUNT + 1 ))
+        SYSFS_LINES+="$sz $exp"$'\n'
+    done
+
+    if [[ "$BUF_COUNT" -gt 0 ]]; then
+        echo "- **Active DMA-BUF Count:** \`$BUF_COUNT\`"
+        echo "- **Total DMA-BUF RAM:** **$(awk "BEGIN {printf \"%.1f\", $TOTAL_BYTES/1048576}") MB**"
+
+        echo ""
+        echo "### Top 10 Largest Individual GPU Buffers"
+        echo "| Size (MB) | Exporter |"
+        echo "|---|---|"
+        echo "$SYSFS_LINES" | sort -k1 -rn | head -10 | while read -r sz exporter; do
+            [[ -z "$sz" ]] && continue
+            printf "| %.1f | %s |\n" "$(awk "BEGIN {printf \"%.1f\", $sz/1048576}")" "$exporter"
+        done
+
+        echo ""
+        echo "### Buffer Breakdown by Exporter"
+        echo "| Exporter Driver | Object Count |"
+        echo "|---|---|"
+        echo "$SYSFS_LINES" | awk 'NF>=2 {print $2}' | sort | uniq -c | sort -rn | while read -r cnt exporter; do
+            printf "| %s | %d |\n" "$exporter" "$cnt"
+        done
+    else
+        echo "**No active DMA-BUFs tracked via sysfs.**"
     fi
 else
-    echo "**DMA-BUF trace unavailable.** (debugfs blocked or lockdown=integrity)."
+    echo "**DMA-BUF trace unavailable.** (debugfs blocked or lockdown=integrity, sysfs stats not compiled in)."
 fi
 
 # udmabuf check
@@ -513,17 +554,20 @@ echo "- **ShmemHugePages:** $(to_mb $SHMEM_HUGE) MB"
 echo "- **FileHugePages:** $(to_mb $FILE_HUGE) MB"
 echo ""
 
-# Optional Multi-Size THP (mTHP) Tiers display
+# Multi-Size THP (mTHP) Tiers display
+MTHP_HEADER_PRINTED=false
 for f in $THP_DIR/hugepages-*kB/nr_anon; do
     [[ -r "$f" ]] || continue
     
-    # Bulletproof POSIX sed extraction (avoids grep -oP silently failing)
     sz=$(echo "$f" | sed -n 's/.*hugepages-\([0-9]*\)kB.*/\1/p' 2>/dev/null || echo 0)
     count=$(cat "$f" 2>/dev/null || echo 0)
     
     if [[ "$sz" -gt 0 && "$count" -gt 0 ]]; then
+        if [[ "$MTHP_HEADER_PRINTED" == false ]]; then
+            echo "### Active mTHP Allocation Tiers"
+            MTHP_HEADER_PRINTED=true
+        fi
         total_mb=$(awk "BEGIN {printf \"%.1f\", ($count * $sz) / 1024}")
-        echo "### Active mTHP Allocation Tiers"
         echo "- **hugepages-${sz}kB:** \`$count\` active allocations (*$total_mb MB total*)"
     fi
 done
@@ -565,8 +609,7 @@ fi
 
 echo ""
 echo "### C. Screencopy / OBS / Portals"
-# Fixed pgrep regex: Uses ERE | rather than BRE \|
-SC_PIDS=$(pgrep -af 'screencopy|wlr-randr|obs|pipewire|sunshine|xdg-desktop-portal' 2>/dev/null || true)
+SC_PIDS=$(pgrep -af 'screencopy|wlr-randr|obs|sunshine|xdg-desktop-portal|hyprshot|grim|slurp|wl-screenrec' 2>/dev/null || true)
 if [[ -n "$SC_PIDS" ]]; then
     echo "Active screencasting/portal processes (These pin multiple 4K/1440p DMA-BUFs for sharing):"
     echo "\`\`\`text"
@@ -580,20 +623,22 @@ else
 fi
 
 echo ""
-echo "### D. Decorations & Shadows"
-HYPR_CONF_PATHS=(
-    "$TARGET_HOME/.config/hypr/hyprland.conf"
-    "$TARGET_HOME/.config/hypr/hyprland.lua"
-)
-for cfg in "${HYPR_CONF_PATHS[@]}"; do
-    [[ -r "$cfg" ]] || continue
-    BLUR=$(grep -iE '^\s*(blur\s*=\s*true|blur\s*\{|blurSize)' "$cfg" 2>/dev/null | head -1 || true)
-    SHADOW=$(grep -iE '^\s*drop_shadow\s*=\s*true' "$cfg" 2>/dev/null | head -1 || true)
+echo "### D. Decorations & Shadows (Dynamic IPC)"
+if [[ -n "${HYPR_USER:-}" ]]; then
+    # Interrogate the live IPC to bypass commented lines and multi-file configs natively
+    BLUR=$(sudo -u "$HYPR_USER" env $HYPR_ENV hyprctl getoption decoration:blur:enabled -j 2>/dev/null | jq -r '.int // .set // empty' 2>/dev/null || echo 0)
     
-    [[ -n "$BLUR" ]]   && echo "⚠️ **Blur enabled:** \`$cfg\`. (Requires massive GPU/RAM framebuffers for Aquamarine)."
-    [[ -n "$SHADOW" ]] && echo "⚠️ **Shadows enabled:** \`$cfg\`. (Requires additional surface FBOs per window)."
-    [[ -z "$BLUR" && -z "$SHADOW" ]] && echo "✅ No blur/shadow detected in \`$cfg\`."
-done
+    SHADOW=$(sudo -u "$HYPR_USER" env $HYPR_ENV hyprctl getoption decoration:shadow:enabled -j 2>/dev/null | jq -r '.int // .set // empty' 2>/dev/null || echo "null")
+    [[ "$SHADOW" == "null" || "$SHADOW" == "" ]] && SHADOW=$(sudo -u "$HYPR_USER" env $HYPR_ENV hyprctl getoption decoration:drop_shadow -j 2>/dev/null | jq -r '.int // .set // empty' 2>/dev/null || echo 0)
+
+    GLOW=$(sudo -u "$HYPR_USER" env $HYPR_ENV hyprctl getoption decoration:glow:enabled -j 2>/dev/null | jq -r '.int // .set // empty' 2>/dev/null || echo 0)
+
+    [[ "$BLUR" == "1" ]]   && echo "⚠️ **Blur enabled.** (Requires massive GPU/RAM framebuffers for Aquamarine)." || echo "✅ Blur disabled."
+    [[ "$SHADOW" == "1" ]] && echo "⚠️ **Shadows enabled.** (Requires additional surface FBOs per window)." || echo "✅ Shadows disabled."
+    [[ "$GLOW" == "1" ]]   && echo "⚠️ **Glow enabled.** (Additional FBOs per window for Aquamarine)." || echo "✅ Glow disabled."
+else
+    echo "⚠️ Cannot check decorations (Hyprland user context missing)."
+fi
 echo ""
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -606,8 +651,8 @@ echo "### OOM Kills in Kernel Log"
 echo "\`\`\`text"
 (
     set +e +o pipefail
-    dmesg --time-format reltime 2>/dev/null | grep -i 'oom\|killed process\|out of memory' | tail -10 || \
-    journalctl -k --no-pager -q 2>/dev/null | grep -i 'oom\|killed process\|out of memory' | tail -10 || \
+    dmesg --time-format reltime 2>/dev/null | grep -iE 'oom|killed process|out of memory' | tail -10 || \
+    journalctl -k --no-pager -q 2>/dev/null | grep -iE 'oom|killed process|out of memory' | tail -10 || \
     echo "  No OOM events found in kernel log."
 )
 echo "\`\`\`"
@@ -616,7 +661,10 @@ echo "### Pressure Stall Information (PSI)"
 echo "\`\`\`text"
 for res in memory cpu io; do
     PSI_FILE="/proc/pressure/$res"
-    [[ -r "$PSI_FILE" ]] && printf "%-8s %s\n" "$res:" "$(cat $PSI_FILE)" || true
+    if [[ -r "$PSI_FILE" ]]; then
+        echo "${res}:"
+        sed 's/^/  /' "$PSI_FILE"
+    fi
 done
 echo "\`\`\`"
 echo ""
